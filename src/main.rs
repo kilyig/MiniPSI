@@ -1,45 +1,50 @@
-use ark_ff::{Field, PrimeField, BigInteger, BigInt};
-// Now we'll use the prime field underlying the BLS12-381 G1 curve.
-use ark_test_curves::bls12_381::Fq as F;
-use ark_std::{One, Zero, UniformRand};
+// Defining your own field
+// To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
+// We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
+
+use ark_ff::fields::{Field, Fp64, MontBackend, MontConfig};
+use ark_ff::{BigInteger64};
+
+use rand::{thread_rng, Rng};
+
+#[derive(MontConfig)]
+#[modulus = "2305843009213693951"] // a Mersenne prime
+#[generator = "3"]
+pub struct FqConfig;
+pub type Fq = Fp64<MontBackend<FqConfig, 1>>;
 
 fn main() {
-    let mut rng = ark_std::test_rng();
+    // private set of the sender
+    const SET_X: [u64; 3] = [1u64, 2u64, 3u64];
 
-    // let set1_raw: [i32; 4] = [1, 2, 3, 4];
-    // let set2_raw: [i32; 4] = [3, 4, 5, 6];
+    // private set of the receiver
+    const SET_Y: [u64; 3] = [3u64, 4u64, 5u64];
 
-    let set1 = vec![F::from(1), F::from(2), F::from(3), F::from(4)];
-    let set2 = vec![F::from(3), F::from(4), F::from(5), F::from(6)];
+    // generator for the group. agreed by both parties
+    let g = Fq::from(3);
 
-    // Player 1 samples a random value
-    let alpha = F::rand(&mut rng);
+    // step #1
+    // a <-- KA.R
+    let a: BigInteger64 = BigInteger64::from(5586581436584319u64);
 
-    // Player 2 samples a random value
-    let beta = F::rand(&mut rng);
+    // step #2
+    // m = KA.msg_1(a)
+    let m = g.pow(&a);
 
-    println!("{alpha}");
-    println!("{beta}");
+    /* the sender sends m to the receiver */
 
-    // iter map collect was taken from https://doc.rust-lang.org/book/ch13-02-iterators.html
+    // step #3
+    // for i \in [n]:
+    for i in 0..SET_Y.len() {
+        // b_i <-- KA.R
+        let mut rng = thread_rng();
+        let random_u64: u64 = rng.gen();
+        let b_i: BigInteger64 = BigInteger64::from(random_u64);
+        println!("Random u64 value: {}", b_i);
 
-    // player 1 alpha-exponentiates
-    let set1_alpha: Vec<_> = set1.iter().map(|x| alpha * x).collect();
+        // m_i^' = KA.msg_2(b_1, m)
 
-    // player 2 beta
-    let set1_alpha_beta: Vec<_> = set1_alpha.iter().map(|x| beta * x).collect();
-    let set2_beta: Vec<_> = set2.iter().map(|x| beta * x).collect();
-
-    // player 1 alpha
-    let set2_beta_alpha: Vec<_> = set2_beta.iter().map(|x| alpha * x).collect();
-
-    assert_eq!(set1_alpha_beta[3], set2_beta_alpha[1]);
-
-    for x in &set1_alpha_beta {
-        println!("{x}");
     }
 
-    for x in &set2_beta_alpha {
-        println!("{x}");
-    }
+    println!("{}", m);
 }
