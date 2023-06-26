@@ -7,6 +7,8 @@ use ark_ff::{BigInteger64};
 
 use rand::{thread_rng, Rng};
 
+use aes_gcm_siv::Aes256GcmSiv;
+
 #[derive(MontConfig)]
 #[modulus = "2305843009213693951"] // a Mersenne prime
 #[generator = "3"]
@@ -34,16 +36,19 @@ fn main() {
     /* the sender sends m to the receiver */
 
     // step #3
+    let mut rng = thread_rng();
     // for i \in [n]:
     for i in 0..SET_Y.len() {
         // b_i <-- KA.R
-        let mut rng = thread_rng();
         let random_u64: u64 = rng.gen();
         let b_i: BigInteger64 = BigInteger64::from(random_u64);
         println!("Random u64 value: {}", b_i);
 
-        // m_i^' = KA.msg_2(b_1, m)
-
+        // m^'_i = KA.msg_2(b_1, m)
+        let m_prime_i = m.pow(&b_i);
+        
+        // f_i = \Pi^{-1}(m^'_i)
+        
     }
 
     println!("{}", m);
