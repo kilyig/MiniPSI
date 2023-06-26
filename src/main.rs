@@ -7,7 +7,12 @@ use ark_ff::{BigInteger64};
 
 use rand::{thread_rng, Rng};
 
-use aes_gcm_siv::Aes256GcmSiv;
+use std::io;
+
+use aes_gcm_siv::{
+    aead::{Aead, KeyInit, OsRng},
+    Aes256GcmSiv, Nonce, Error // Or `Aes128GcmSiv`
+};
 
 #[derive(MontConfig)]
 #[modulus = "2305843009213693951"] // a Mersenne prime
@@ -15,7 +20,15 @@ use aes_gcm_siv::Aes256GcmSiv;
 pub struct FqConfig;
 pub type Fq = Fp64<MontBackend<FqConfig, 1>>;
 
-fn main() {
+// changed the main() signature due to the AES implementation
+// inspired by https://stackoverflow.com/questions/24245276/why-does-rust-not-have-a-return-value-in-the-main-function-and-how-to-return-a
+fn main() -> Result<(), aes_gcm_siv::Error> {
+
+    // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
+    let key = Aes256GcmSiv::generate_key(&mut OsRng);
+    let cipher = Aes256GcmSiv::new(&key);
+    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+
     // private set of the sender
     const SET_X: [u64; 3] = [1u64, 2u64, 3u64];
 
@@ -34,7 +47,7 @@ fn main() {
     let m = g.pow(&a);
 
     /* the sender sends m to the receiver */
-
+    
     // step #3
     let mut rng = thread_rng();
     // for i \in [n]:
@@ -46,10 +59,19 @@ fn main() {
 
         // m^'_i = KA.msg_2(b_1, m)
         let m_prime_i = m.pow(&b_i);
-        
+
         // f_i = \Pi^{-1}(m^'_i)
-        
+        let m_prime_i_string: String = std::format!("{m_prime_i}");
+        // In AES, encryption and decryption are done by the same operation
+        // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
+        let ciphertext = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref())?;
+        let plaintext = cipher.decrypt(nonce, ciphertext.as_ref())?;
+        assert_eq!(&plaintext, m_prime_i_string.as_bytes());
+
+
+    
     }
 
     println!("{}", m);
+    Ok(())
 }
