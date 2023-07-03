@@ -53,6 +53,7 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     
     // step #3
     let mut rng = thread_rng();
+    let mut f_i_array: Vec<_> = Vec::new();
     // for i \in [n]:
     for i in 0..SET_Y.len() {
         // b_i <-- KA.R
@@ -70,11 +71,12 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
         let f_i_bytes = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref())?;
         let f_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&f_i_bytes);
+        f_i_array.push(f_i);
 
-        println!("mem: {:?}", std::mem::size_of_val(&m_prime_i_string));
-        println!("m_prime_i_string: {:?}", m_prime_i_string);
-        println!("f_i: {:?}", f_i);
-        println!("f_i_bytes: {:?}", f_i_bytes);
+        // println!("mem: {:?}", std::mem::size_of_val(&m_prime_i_string));
+        // println!("m_prime_i_string: {:?}", m_prime_i_string);
+        // println!("f_i: {:?}", f_i);
+        // println!("f_i_bytes: {:?}", f_i_bytes);
 
         // // the two lines below work
         // let plaintext = cipher.decrypt(nonce, ciphertext.as_ref())?;
@@ -82,38 +84,22 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     }
 
     // P = interpol_F
-    println!("test {:?}", b"Hello");
-
     // first we need to hash the y_i values
     let mut y_hashes: Vec<_> = Vec::new();
     for i in 0..SET_Y.len() {
         let mut hasher = Sha256::new();
         hasher.update(SET_Y[i].to_le_bytes());
         let result = hasher.finalize();
-        // println!(" result {i}: {:?}", result);
-        // println!(" length {:?}", result.len());
 
         // need to shorten in to u64 for now.
         // represent those 8 bytes as a single u64
-        let finala = <Fq as PrimeField>::from_le_bytes_mod_order(result[..8].try_into().unwrap());
+        let hash = <Fq as PrimeField>::from_le_bytes_mod_order(result[..8].try_into().unwrap());
 
-        // println!("{}", finala);
-
-        y_hashes.push(finala);
+        y_hashes.push(hash);
     }
 
-    println!("{:?}", y_hashes[0]);
-    println!("{:?}", y_hashes[1]);
-    println!("{:?}", y_hashes[2]);
-
-    // need to convert the u64 to field elements for interpolation
-    let mut evaluations: Vec<_> = Vec::new();
-    for i in 0..y_hashes.len() {
-        evaluations.push(Fq::from(y_hashes[i]));
-    }
-
-    println!("{:?}", evaluations);
     println!("{:?}", y_hashes);
+    println!("{:?}", f_i_array);
 
     // domain
     // let 
