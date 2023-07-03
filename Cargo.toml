@@ -14,3 +14,4 @@ ark-std = "0.4.0"
 ark-test-curves = { version = "0.4.2", features = ["bls12_381_curve"] }
 num-bigint = "0.4.3"
 rand = "0.8.5"
+sha2 = "0.10.7"

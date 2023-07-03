@@ -9,9 +9,12 @@ use rand::{thread_rng, Rng};
 
 use std::io;
 
+// https://docs.rs/sha2/latest/sha2/
+use sha2::{Sha256, Digest};
+
 use aes_gcm_siv::{
     aead::{Aead, KeyInit, OsRng},
-    Aes256GcmSiv, Nonce, Error // Or `Aes128GcmSiv`
+    Aes128GcmSiv, Nonce, Error // Or `Aes128GcmSiv`
 };
 
 #[derive(MontConfig)]
@@ -25,8 +28,8 @@ pub type Fq = Fp64<MontBackend<FqConfig, 1>>;
 fn main() -> Result<(), aes_gcm_siv::Error> {
 
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
-    let key = Aes256GcmSiv::generate_key(&mut OsRng);
-    let cipher = Aes256GcmSiv::new(&key);
+    let key = Aes128GcmSiv::generate_key(&mut OsRng);
+    let cipher = Aes128GcmSiv::new(&key);
     let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
 
     // private set of the sender
@@ -64,14 +67,71 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         let m_prime_i_string: String = std::format!("{m_prime_i}");
         // In AES, encryption and decryption are done by the same operation
         // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
-        let ciphertext = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref())?;
-        let plaintext = cipher.decrypt(nonce, ciphertext.as_ref())?;
-        assert_eq!(&plaintext, m_prime_i_string.as_bytes());
+        // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
+        let f_i_bytes = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref())?;
 
-
-    
+        println!("mem: {:?}", std::mem::size_of_val(&m_prime_i_string));
+        println!("m_prime_i_string: {:?}", m_prime_i_string);
+        println!("f_i: {:?}", f_i_bytes);
+        println!("f_i length: {}", f_i_bytes.len());
+        
+        // // the two lines below work
+        // let plaintext = cipher.decrypt(nonce, ciphertext.as_ref())?;
+        // assert_eq!(&plaintext, m_prime_i_string.as_bytes());
     }
 
-    println!("{}", m);
+    // P = interpol_F
+    println!("test {:?}", b"Hello");
+
+    // first we need to hash the y_i values
+    let mut y_hashes: [u64; SET_Y.len()] = [0u64; SET_Y.len()];
+    for i in 0..SET_Y.len() {
+        let mut hasher = Sha256::new();
+        hasher.update(SET_Y[i].to_ne_bytes());
+        let result = hasher.finalize();
+        // println!(" result {i}: {:?}", result);
+        // println!(" length {:?}", result.len());
+
+        // need to shorten in to u64 for now.
+        // represent those 8 bytes as a single u64
+        let finala: u64 = u64::from_ne_bytes(result[..8].try_into().unwrap());
+
+        // println!("{}", finala);
+
+        y_hashes[i] = finala;
+    }
+
+    println!("{:?}", y_hashes);
+    
+
     Ok(())
+}
+
+
+// stolen from https://github.com/TheAlgorithms/Rust/blob/master/src/math/interpolation.rs
+pub fn lagrange_polynomial_interpolation(x: f64, defined_points: &Vec<(f64, f64)>) -> f64 {
+    let mut defined_x_values: Vec<f64> = Vec::new();
+    let mut defined_y_values: Vec<f64> = Vec::new();
+
+    for (x, y) in defined_points {
+        defined_x_values.push(*x);
+        defined_y_values.push(*y);
+    }
+
+    let mut sum = 0.0;
+
+    for y_index in 0..defined_y_values.len() {
+        let mut numerator = 1.0;
+        let mut denominator = 1.0;
+        for x_index in 0..defined_x_values.len() {
+            if y_index == x_index {
+                continue;
+            }
+            denominator *= defined_x_values[y_index] - defined_x_values[x_index];
+            numerator *= x - defined_x_values[x_index];
+        }
+
+        sum += numerator / denominator * defined_y_values[y_index];
+    }
+    sum
 }
