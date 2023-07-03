@@ -3,7 +3,7 @@
 // We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
 
 use ark_ff::fields::{Field, Fp64, MontBackend, MontConfig};
-use ark_ff::{BigInteger64};
+use ark_ff::{BigInteger64, BigInteger128, BigInteger256, BigInt, PrimeField};
 
 use rand::{thread_rng, Rng};
 
@@ -43,7 +43,7 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
 
     // step #1
     // a <-- KA.R
-    let a: BigInteger64 = BigInteger64::from(5586581436584319u64);
+    let a: BigInteger256 = BigInteger256::from(5586581436584319u64);
 
     // step #2
     // m = KA.msg_1(a)
@@ -56,8 +56,8 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     // for i \in [n]:
     for i in 0..SET_Y.len() {
         // b_i <-- KA.R
-        let random_u64: u64 = rng.gen();
-        let b_i: BigInteger64 = BigInteger64::from(random_u64);
+        let b_i: BigInteger256 = rng.gen();
+        //let b_i: BigInteger256 = BigInteger256::from(random_u64);
         println!("Random u64 value: {}", b_i);
 
         // m^'_i = KA.msg_2(b_1, m)
@@ -69,12 +69,13 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
         // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
         let f_i_bytes = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref())?;
+        let f_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&f_i_bytes);
 
         println!("mem: {:?}", std::mem::size_of_val(&m_prime_i_string));
         println!("m_prime_i_string: {:?}", m_prime_i_string);
-        println!("f_i: {:?}", f_i_bytes);
-        println!("f_i length: {}", f_i_bytes.len());
-        
+        println!("f_i: {:?}", f_i);
+        println!("f_i_bytes: {:?}", f_i_bytes);
+
         // // the two lines below work
         // let plaintext = cipher.decrypt(nonce, ciphertext.as_ref())?;
         // assert_eq!(&plaintext, m_prime_i_string.as_bytes());
@@ -84,24 +85,42 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     println!("test {:?}", b"Hello");
 
     // first we need to hash the y_i values
-    let mut y_hashes: [u64; SET_Y.len()] = [0u64; SET_Y.len()];
+    let mut y_hashes: Vec<_> = Vec::new();
     for i in 0..SET_Y.len() {
         let mut hasher = Sha256::new();
-        hasher.update(SET_Y[i].to_ne_bytes());
+        hasher.update(SET_Y[i].to_le_bytes());
         let result = hasher.finalize();
         // println!(" result {i}: {:?}", result);
         // println!(" length {:?}", result.len());
 
         // need to shorten in to u64 for now.
         // represent those 8 bytes as a single u64
-        let finala: u64 = u64::from_ne_bytes(result[..8].try_into().unwrap());
+        let finala = <Fq as PrimeField>::from_le_bytes_mod_order(result[..8].try_into().unwrap());
 
         // println!("{}", finala);
 
-        y_hashes[i] = finala;
+        y_hashes.push(finala);
     }
 
+    println!("{:?}", y_hashes[0]);
+    println!("{:?}", y_hashes[1]);
+    println!("{:?}", y_hashes[2]);
+
+    // need to convert the u64 to field elements for interpolation
+    let mut evaluations: Vec<_> = Vec::new();
+    for i in 0..y_hashes.len() {
+        evaluations.push(Fq::from(y_hashes[i]));
+    }
+
+    println!("{:?}", evaluations);
     println!("{:?}", y_hashes);
+
+    // domain
+    // let 
+
+    // let eval = Evaluations::from_vec_and_domain(
+
+    // )
     
 
     Ok(())

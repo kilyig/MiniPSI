@@ -1,33 +1,19 @@
-use ark_ff::{Field, PrimeField, BigInteger, BigInt};
-// Now we'll use the prime field underlying the BLS12-381 G1 curve.
+use ark_ff::{BigInteger, Field, PrimeField};
+use ark_std::{test_rng, One, UniformRand, Zero};
 use ark_test_curves::bls12_381::Fq as F;
-use ark_std::{One, Zero, UniformRand};
-
-fn print_type_of<T>(_: &T) {
-    println!("{}", std::any::type_name::<T>())
-}
 
 fn main() {
-    let mut rng = ark_std::test_rng();
-
-    
-
-    let set1 = vec![F::from(1), F::from(2), F::from(3), F::from(4)];
-    let set2 = vec![F::from(3), F::from(4), F::from(5), F::from(6)];
-
-    // the players need to agree on a generator for the group.
-    // let's take the number 2 as the generator
-    let generator = F::rand(&mut rng);
-    let exponent = <F as PrimeField>::GENERATOR;
-
-    print_type_of(&exponent);
-    
-    // step #1
-    // a <-- KA.R
-    // Player 1 samples a random value
+    let mut rng = test_rng();
     let a = F::rand(&mut rng);
-
-    // step #2
-    // m = KA.msg_1(a)
-    let m = generator.pow(&exponent);
+    // We can access the prime modulus associated with `F`:
+    let modulus = <F as PrimeField>::MODULUS;
+    assert_eq!(a.pow(&modulus), a); // the Euler-Fermat theorem tells us: a^{p-1} = 1 mod p
+    
+    // We can convert field elements to integers in the range [0, MODULUS - 1]:
+    let one: num_bigint::BigUint = F::one().into();
+    assert_eq!(one, num_bigint::BigUint::one());
+    
+    // We can construct field elements from an arbitrary sequence of bytes:
+    let n = F::from_le_bytes_mod_order(&modulus.to_bytes_le());
+    assert_eq!(n, F::zero());
 }
