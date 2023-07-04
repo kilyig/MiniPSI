@@ -60,10 +60,12 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     // step #3
     let mut rng = thread_rng();
     let mut f_i_array: Vec<_> = Vec::new();
+    let mut b_i_array: Vec<_> = Vec::new();
     // for i \in [n]:
     for i in 0..SET_Y.len() {
         // b_i <-- KA.R
         let b_i: BigInteger256 = rng.gen();
+        b_i_array.push(b_i);
         //let b_i: BigInteger256 = BigInteger256::from(random_u64);
         println!("Random u64 value: {}", b_i);
 
@@ -93,11 +95,12 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     // first we need to hash the y_i values
     let mut y_hashes: Vec<_> = Vec::new();
     for i in 0..SET_Y.len() {
+        // https://docs.rs/sha2/latest/sha2/
         let mut hasher = Sha256::new();
         hasher.update(SET_Y[i].to_le_bytes());
         let result = hasher.finalize();
 
-        // need to shorten in to u64 for now.
+        // need to shorten it to u64 for now.
         // represent those 8 bytes as a single u64
         let hash = <Fq as PrimeField>::from_le_bytes_mod_order(result[..8].try_into().unwrap());
 
@@ -111,15 +114,98 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     // form, but this form might render the protocol useless.
     // TODO: find out if the evaluation form is okay.
 
+
+
+
+
+
+    /* the receiver sends P to the receiver */
+
+
+
+
+
+    // the following polynomial is a different poly than the one sent by the receiver
+    // TODO: make sure that the sent P and the received P are the same
+
+    // copied from https://github.com/arkworks-rs/sumcheck/blob/f4d971ee02a3116442bf393c305a734933b20dde/src/ml_sumcheck/protocol/verifier.rs#L298C13-L298C13
     // test a polynomial with 20 known points, i.e., with degree 19
-    let poly = DensePolynomial::<F>::rand(20 - 1, &mut rng);
+    let poly = DensePolynomial::<Fq>::rand(20 - 1, &mut rng);
     let evals = (0..20)
-        .map(|i| poly.evaluate(&F::from(i)))
-        .collect::<Vec<F>>();
+        .map(|i| poly.evaluate(&Fq::from(i)))
+        .collect::<Vec<Fq>>();
     let query = F::rand(&mut rng);
 
-    assert_eq!(poly.evaluate(&query), interpolate_uni_poly(&evals, query));
+    println!("{:?}", poly);
 
+    //assert_eq!(poly.evaluate(&query), interpolate_uni_poly(&evals, query));
+
+    // step #5
+    let mut capital_k: Vec<_> = Vec::new();
+    // for i \in [n]:
+    for i in 0..SET_X.len() {
+        // k_i = KA.key_1(a, \Pi(P(H_1(x_i))))
+        let x_i = SET_X[i];
+
+        // H_1(x_i)
+        let mut hasher = Sha256::new();
+        hasher.update(x_i.to_le_bytes());
+        let result = hasher.finalize();
+        let h_1_x_i = <Fq as PrimeField>::from_le_bytes_mod_order(result[..8].try_into().unwrap());
+
+        // P(H_1(x_i))
+        let p_h_1_x_i = interpolate_uni_poly(&evals, h_1_x_i);
+
+        // \Pi(P(H_1(x_i)))
+        let p_h_1_x_i_string: String = std::format!("{p_h_1_x_i}");
+        // In AES, encryption and decryption are done by the same operation
+        // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
+        // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
+        // TODO: why does it give an error when I run `.decrypt`?
+        let pi_p_h_1_x_i_bytes = cipher.encrypt(nonce, p_h_1_x_i_string.as_bytes().as_ref())?;
+        let pi_p_h_1_x_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&pi_p_h_1_x_i_bytes);
+        
+        let k_i = pi_p_h_1_x_i.pow(&a);
+
+        let mut hasher2 = Sha256::new();
+        // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
+        hasher2.update(x_i.to_le_bytes());
+        let k_i_string: String = std::format!("{k_i}");
+        hasher2.update(k_i_string.as_bytes());
+        let k_prime_i_bytes = hasher2.finalize();
+
+        let k_prime_i = <Fq as PrimeField>::from_le_bytes_mod_order(k_prime_i_bytes[..8].try_into().unwrap());
+
+
+        capital_k.push(k_prime_i);
+    }
+
+    // step #6
+    // TODO: shuffle K
+
+    /* the sender sends K to the receiver */
+
+    // step #7
+    let mut output: Vec<u64> = Vec::new();
+    for i in 0..SET_Y.len() {
+        // KA.key_2(b_i, m)
+        let key_2 = m.pow(&b_i_array[i]);
+
+        let mut hasher2 = Sha256::new();
+        // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
+        hasher2.update(SET_Y[i].to_le_bytes());
+        let key_2_string: String = std::format!("{key_2}");
+        hasher2.update(key_2_string.as_bytes());
+        let h_2_bytes = hasher2.finalize();
+
+        let h_2 = <Fq as PrimeField>::from_le_bytes_mod_order(h_2_bytes[..8].try_into().unwrap());
+
+        if capital_k.contains(&h_2) {
+            output.push(SET_Y[i]);
+        }
+    }
+
+    println!("{:?}", output);
 
     Ok(())
 }
@@ -127,11 +213,14 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
 
 // stolen from https://github.com/TheAlgorithms/Rust/blob/master/src/math/interpolation.rs
 // [deleted]
+
+
+// stolen from https://github.com/arkworks-rs/sumcheck/blob/f4d971ee02a3116442bf393c305a734933b20dde/src/ml_sumcheck/protocol/verifier.rs#L139
 /// interpolate the *unique* univariate polynomial of degree *at most*
 /// p_i.len()-1 passing through the y-values in p_i at x = 0,..., p_i.len()-1
 /// and evaluate this  polynomial at `eval_at`. In other words, efficiently compute
 ///  \sum_{i=0}^{len p_i - 1} p_i[i] * (\prod_{j!=i} (eval_at - j)/(i-j))
-pub(crate) fn interpolate_uni_poly<F: Field>(p_i: &[F], eval_at: F) -> F {
+fn interpolate_uni_poly<F: Field>(p_i: &[F], eval_at: F) -> F {
     let len = p_i.len();
 
     let mut evals = vec![];
@@ -242,5 +331,35 @@ pub(crate) fn interpolate_uni_poly<F: Field>(p_i: &[F], eval_at: F) -> F {
         }
     }
 
+    res
+}
+
+/// compute the factorial(a) = 1 * 2 * ... * a
+#[inline]
+fn u128_factorial(a: usize) -> u128 {
+    let mut res = 1u128;
+    for i in 1..=a {
+        res *= i as u128;
+    }
+    res
+}
+
+/// compute the factorial(a) = 1 * 2 * ... * a
+#[inline]
+fn u64_factorial(a: usize) -> u64 {
+    let mut res = 1u64;
+    for i in 1..=a {
+        res *= i as u64;
+    }
+    res
+}
+
+/// compute the factorial(a) = 1 * 2 * ... * a
+#[inline]
+fn field_factorial<F: Field>(a: usize) -> F {
+    let mut res = F::one();
+    for i in 1..=a {
+        res *= F::from(i as u64);
+    }
     res
 }
