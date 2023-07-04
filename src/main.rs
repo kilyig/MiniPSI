@@ -3,18 +3,24 @@
 // We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
 
 use ark_ff::fields::{Field, Fp64, MontBackend, MontConfig};
-use ark_ff::{BigInteger64, BigInteger128, BigInteger256, BigInt, PrimeField};
+use ark_ff::{BigInteger256, PrimeField};
+
+use ark_poly::DenseUVPolynomial;
+use ark_poly::univariate::DensePolynomial;
 
 use rand::{thread_rng, Rng};
 
-use std::io;
+type F = ark_test_curves::bls12_381::Fr;
+use ark_std::UniformRand;
+
+use ark_poly::Polynomial;
 
 // https://docs.rs/sha2/latest/sha2/
 use sha2::{Sha256, Digest};
 
 use aes_gcm_siv::{
     aead::{Aead, KeyInit, OsRng},
-    Aes128GcmSiv, Nonce, Error // Or `Aes128GcmSiv`
+    Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
 };
 
 #[derive(MontConfig)]
@@ -101,42 +107,140 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     println!("{:?}", y_hashes);
     println!("{:?}", f_i_array);
 
-    // domain
-    // let 
+    // now, create the polynomial. currently, the polynomial is in the evaluation 
+    // form, but this form might render the protocol useless.
+    // TODO: find out if the evaluation form is okay.
 
-    // let eval = Evaluations::from_vec_and_domain(
+    // test a polynomial with 20 known points, i.e., with degree 19
+    let poly = DensePolynomial::<F>::rand(20 - 1, &mut rng);
+    let evals = (0..20)
+        .map(|i| poly.evaluate(&F::from(i)))
+        .collect::<Vec<F>>();
+    let query = F::rand(&mut rng);
 
-    // )
-    
+    assert_eq!(poly.evaluate(&query), interpolate_uni_poly(&evals, query));
+
 
     Ok(())
 }
 
 
 // stolen from https://github.com/TheAlgorithms/Rust/blob/master/src/math/interpolation.rs
-pub fn lagrange_polynomial_interpolation(x: f64, defined_points: &Vec<(f64, f64)>) -> f64 {
-    let mut defined_x_values: Vec<f64> = Vec::new();
-    let mut defined_y_values: Vec<f64> = Vec::new();
+// [deleted]
+/// interpolate the *unique* univariate polynomial of degree *at most*
+/// p_i.len()-1 passing through the y-values in p_i at x = 0,..., p_i.len()-1
+/// and evaluate this  polynomial at `eval_at`. In other words, efficiently compute
+///  \sum_{i=0}^{len p_i - 1} p_i[i] * (\prod_{j!=i} (eval_at - j)/(i-j))
+pub(crate) fn interpolate_uni_poly<F: Field>(p_i: &[F], eval_at: F) -> F {
+    let len = p_i.len();
 
-    for (x, y) in defined_points {
-        defined_x_values.push(*x);
-        defined_y_values.push(*y);
-    }
+    let mut evals = vec![];
 
-    let mut sum = 0.0;
+    let mut prod = eval_at;
+    evals.push(eval_at);
 
-    for y_index in 0..defined_y_values.len() {
-        let mut numerator = 1.0;
-        let mut denominator = 1.0;
-        for x_index in 0..defined_x_values.len() {
-            if y_index == x_index {
-                continue;
-            }
-            denominator *= defined_x_values[y_index] - defined_x_values[x_index];
-            numerator *= x - defined_x_values[x_index];
+    //`prod = \prod_{j} (eval_at - j)`
+    // we return early if 0 <= eval_at <  len, i.e. if the desired value has been passed
+    let mut check = F::zero();
+    for i in 1..len {
+        if eval_at == check {
+            return p_i[i - 1];
         }
+        check += F::one();
 
-        sum += numerator / denominator * defined_y_values[y_index];
+        let tmp = eval_at - check;
+        evals.push(tmp);
+        prod *= tmp;
     }
-    sum
+
+    if eval_at == check {
+        return p_i[len - 1];
+    }
+
+    let mut res = F::zero();
+    // we want to compute \prod (j!=i) (i-j) for a given i
+    //
+    // we start from the last step, which is
+    //  denom[len-1] = (len-1) * (len-2) *... * 2 * 1
+    // the step before that is
+    //  denom[len-2] = (len-2) * (len-3) * ... * 2 * 1 * -1
+    // and the step before that is
+    //  denom[len-3] = (len-3) * (len-4) * ... * 2 * 1 * -1 * -2
+    //
+    // i.e., for any i, the one before this will be derived from
+    //  denom[i-1] = - denom[i] * (len-i) / i
+    //
+    // that is, we only need to store
+    // - the last denom for i = len-1, and
+    // - the ratio between the current step and the last step, which is the
+    //   product of -(len-i) / i from all previous steps and we store
+    //   this product as a fraction number to reduce field divisions.
+
+    // We know
+    //  - 2^61 < factorial(20) < 2^62
+    //  - 2^122 < factorial(33) < 2^123
+    // so we will be able to compute the ratio
+    //  - for len <= 20 with i64
+    //  - for len <= 33 with i128
+    //  - for len >  33 with BigInt
+    if p_i.len() <= 20 {
+        let last_denom = F::from(u64_factorial(len - 1));
+        let mut ratio_numerator = 1i64;
+        let mut ratio_enumerator = 1u64;
+
+        for i in (0..len).rev() {
+            let ratio_numerator_f = if ratio_numerator < 0 {
+                -F::from((-ratio_numerator) as u64)
+            } else {
+                F::from(ratio_numerator as u64)
+            };
+
+            res += p_i[i] * prod * F::from(ratio_enumerator)
+                / (last_denom * ratio_numerator_f * evals[i]);
+
+            // compute ratio for the next step which is current_ratio * -(len-i)/i
+            if i != 0 {
+                ratio_numerator *= -(len as i64 - i as i64);
+                ratio_enumerator *= i as u64;
+            }
+        }
+    } else if p_i.len() <= 33 {
+        let last_denom = F::from(u128_factorial(len - 1));
+        let mut ratio_numerator = 1i128;
+        let mut ratio_enumerator = 1u128;
+
+        for i in (0..len).rev() {
+            let ratio_numerator_f = if ratio_numerator < 0 {
+                -F::from((-ratio_numerator) as u128)
+            } else {
+                F::from(ratio_numerator as u128)
+            };
+
+            res += p_i[i] * prod * F::from(ratio_enumerator)
+                / (last_denom * ratio_numerator_f * evals[i]);
+
+            // compute ratio for the next step which is current_ratio * -(len-i)/i
+            if i != 0 {
+                ratio_numerator *= -(len as i128 - i as i128);
+                ratio_enumerator *= i as u128;
+            }
+        }
+    } else {
+        // since we are using field operations, we can merge
+        // `last_denom` and `ratio_numerator` into a single field element.
+        let mut denom_up = field_factorial::<F>(len - 1);
+        let mut denom_down = F::one();
+
+        for i in (0..len).rev() {
+            res += p_i[i] * prod * denom_down / (denom_up * evals[i]);
+
+            // compute denom for the next step is -current_denom * (len-i)/i
+            if i != 0 {
+                denom_up *= -F::from((len - i) as u64);
+                denom_down *= F::from(i as u64);
+            }
+        }
+    }
+
+    res
 }
