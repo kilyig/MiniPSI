@@ -10,9 +10,6 @@ use ark_poly::univariate::DensePolynomial;
 
 use rand::{thread_rng, Rng};
 
-type F = ark_test_curves::bls12_381::Fr;
-use ark_std::UniformRand;
-
 use ark_poly::Polynomial;
 
 // https://docs.rs/sha2/latest/sha2/
@@ -66,7 +63,6 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         // b_i <-- KA.R
         let b_i: BigInteger256 = rng.gen();
         b_i_array.push(b_i);
-        //let b_i: BigInteger256 = BigInteger256::from(random_u64);
         println!("Random u64 value: {}", b_i);
 
         // m^'_i = KA.msg_2(b_1, m)
@@ -80,15 +76,6 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         let f_i_bytes = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref())?;
         let f_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&f_i_bytes);
         f_i_array.push(f_i);
-
-        // println!("mem: {:?}", std::mem::size_of_val(&m_prime_i_string));
-        // println!("m_prime_i_string: {:?}", m_prime_i_string);
-        // println!("f_i: {:?}", f_i);
-        // println!("f_i_bytes: {:?}", f_i_bytes);
-
-        // // the two lines below work
-        // let plaintext = cipher.decrypt(nonce, ciphertext.as_ref())?;
-        // assert_eq!(&plaintext, m_prime_i_string.as_bytes());
     }
 
     // P = interpol_F
@@ -102,7 +89,7 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
 
         // need to shorten it to u64 for now.
         // represent those 8 bytes as a single u64
-        let hash = <Fq as PrimeField>::from_le_bytes_mod_order(result[..8].try_into().unwrap());
+        let hash = <Fq as PrimeField>::from_le_bytes_mod_order(result[..].try_into().unwrap());
 
         y_hashes.push(hash);
     }
@@ -134,11 +121,6 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     let evals = (0..20)
         .map(|i| poly.evaluate(&Fq::from(i)))
         .collect::<Vec<Fq>>();
-    let query = F::rand(&mut rng);
-
-    println!("{:?}", poly);
-
-    //assert_eq!(poly.evaluate(&query), interpolate_uni_poly(&evals, query));
 
     // step #5
     let mut capital_k: Vec<_> = Vec::new();
@@ -151,7 +133,7 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         let mut hasher = Sha256::new();
         hasher.update(x_i.to_le_bytes());
         let result = hasher.finalize();
-        let h_1_x_i = <Fq as PrimeField>::from_le_bytes_mod_order(result[..8].try_into().unwrap());
+        let h_1_x_i = <Fq as PrimeField>::from_le_bytes_mod_order(result[..].try_into().unwrap());
 
         // P(H_1(x_i))
         let p_h_1_x_i = interpolate_uni_poly(&evals, h_1_x_i);
@@ -174,7 +156,7 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         hasher2.update(k_i_string.as_bytes());
         let k_prime_i_bytes = hasher2.finalize();
 
-        let k_prime_i = <Fq as PrimeField>::from_le_bytes_mod_order(k_prime_i_bytes[..8].try_into().unwrap());
+        let k_prime_i = <Fq as PrimeField>::from_le_bytes_mod_order(k_prime_i_bytes[..].try_into().unwrap());
 
 
         capital_k.push(k_prime_i);
@@ -198,7 +180,7 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         hasher2.update(key_2_string.as_bytes());
         let h_2_bytes = hasher2.finalize();
 
-        let h_2 = <Fq as PrimeField>::from_le_bytes_mod_order(h_2_bytes[..8].try_into().unwrap());
+        let h_2 = <Fq as PrimeField>::from_le_bytes_mod_order(h_2_bytes[..].try_into().unwrap());
 
         if capital_k.contains(&h_2) {
             output.push(SET_Y[i]);
