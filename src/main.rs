@@ -2,8 +2,11 @@
 // To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
 // We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
 
+use aes::cipher::typenum::{UInt, UTerm, B0, B1};
 use ark_ff::fields::{Field, Fp64, MontBackend, MontConfig};
 use ark_ff::{BigInteger256, PrimeField};
+use ark_ff::Fp;
+use ark_ff::BigInt;
 
 use ark_poly::DenseUVPolynomial;
 use ark_poly::univariate::DensePolynomial;
@@ -20,29 +23,46 @@ use aes_gcm_siv::{
     Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
 };
 
+use aes;
+
 #[derive(MontConfig)]
 #[modulus = "2305843009213693951"] // a Mersenne prime
 #[generator = "3"]
 pub struct FqConfig;
 pub type Fq = Fp64<MontBackend<FqConfig, 1>>;
 
+// private set of the sender
+const SET_X: [u64; 3] = [1u64, 2u64, 3u64];
+
+// private set of the receiver
+const SET_Y: [u64; 3] = [3u64, 4u64, 5u64];
+
 // changed the main() signature due to the AES implementation
 // inspired by https://stackoverflow.com/questions/24245276/why-does-rust-not-have-a-return-value-in-the-main-function-and-how-to-return-a
 fn main() -> Result<(), aes_gcm_siv::Error> {
 
-    // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
-    let key = Aes128GcmSiv::generate_key(&mut OsRng);
-    let cipher = Aes128GcmSiv::new(&key);
-    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+    let (a, m) = sender_1();
 
-    // private set of the sender
-    const SET_X: [u64; 3] = [1u64, 2u64, 3u64];
+    /* the sender sends m to the receiver */
+    
+    let (poly, b_i_array) = receiver_1(m, SET_Y);
 
-    // private set of the receiver
-    const SET_Y: [u64; 3] = [3u64, 4u64, 5u64];
+    /* the receiver sends poly to the receiver */
 
+    let capital_k = sender_2(a, poly);
+
+    /* the sender sends K to the receiver */
+
+    let output = receiver_2(capital_k, m, b_i_array);
+    println!("{:?}", output);
+
+    Ok(())
+}
+
+fn sender_1() -> (BigInteger256, Fq) {
     // generator for the group. agreed by both parties
-    let g = Fq::from(3);
+    // TODO: generator should be a global variable
+    let generator: Fq = Fq::from(3);
 
     // step #1
     // a <-- KA.R
@@ -50,16 +70,25 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
 
     // step #2
     // m = KA.msg_1(a)
-    let m = g.pow(&a);
+    let m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1> = generator.pow(&a);
 
-    /* the sender sends m to the receiver */
-    
+    (a, m)
+}
+
+fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
+    // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
+    // TODO: those looooooong types are ugly
+    // TODO: these should be global variables
+    let key: aes::cipher::generic_array::GenericArray<u8, UInt<UInt<UInt<UInt<UInt<UTerm, B1>, B0>, B0>, B0>, B0>> = Aes128GcmSiv::generate_key(&mut OsRng);
+    let cipher: aes_gcm_siv::AesGcmSiv<aes::Aes128> = Aes128GcmSiv::new(&key);
+    let nonce: &aes::cipher::generic_array::GenericArray<u8, aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UTerm, aes::cipher::typenum::B1>, aes::cipher::typenum::B1>, aes::cipher::typenum::B0>, aes::cipher::typenum::B0>> = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+
     // step #3
     let mut rng = thread_rng();
     let mut f_i_array: Vec<_> = Vec::new();
     let mut b_i_array: Vec<_> = Vec::new();
     // for i \in [n]:
-    for i in 0..SET_Y.len() {
+    for _ in 0..set_y.len() {
         // b_i <-- KA.R
         let b_i: BigInteger256 = rng.gen();
         b_i_array.push(b_i);
@@ -73,8 +102,9 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         // In AES, encryption and decryption are done by the same operation
         // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
         // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
-        let f_i_bytes = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref())?;
-        let f_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&f_i_bytes);
+        let f_i_bytes = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref());
+        assert!(f_i_bytes.is_ok());
+        let f_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&f_i_bytes.unwrap());
         f_i_array.push(f_i);
     }
 
@@ -99,25 +129,24 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
 
     // now, create the polynomial. currently, the polynomial is in the evaluation 
     // form, but this form might render the protocol useless.
-    // TODO: find out if the evaluation form is okay.
-
-
-
-
-
-
-    /* the receiver sends P to the receiver */
-
-
-
-
 
     // the following polynomial is a different poly than the one sent by the receiver
     // TODO: make sure that the sent P and the received P are the same
+    let poly = DensePolynomial::<Fq>::rand(20 - 1, &mut rng);
+    
+    (poly, b_i_array)
+}
+
+fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>) -> Vec<Fp<MontBackend<FqConfig, 1>, 1>> {
+    // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
+    // TODO: those looooooong types are ugly
+    // TODO: these should be global variables
+    let key: aes::cipher::generic_array::GenericArray<u8, UInt<UInt<UInt<UInt<UInt<UTerm, B1>, B0>, B0>, B0>, B0>> = Aes128GcmSiv::generate_key(&mut OsRng);
+    let cipher: aes_gcm_siv::AesGcmSiv<aes::Aes128> = Aes128GcmSiv::new(&key);
+    let nonce: &aes::cipher::generic_array::GenericArray<u8, aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UTerm, aes::cipher::typenum::B1>, aes::cipher::typenum::B1>, aes::cipher::typenum::B0>, aes::cipher::typenum::B0>> = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
 
     // copied from https://github.com/arkworks-rs/sumcheck/blob/f4d971ee02a3116442bf393c305a734933b20dde/src/ml_sumcheck/protocol/verifier.rs#L298C13-L298C13
     // test a polynomial with 20 known points, i.e., with degree 19
-    let poly = DensePolynomial::<Fq>::rand(20 - 1, &mut rng);
     let evals = (0..20)
         .map(|i| poly.evaluate(&Fq::from(i)))
         .collect::<Vec<Fq>>();
@@ -144,8 +173,9 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
         // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
         // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
         // TODO: why does it give an error when I run `.decrypt`?
-        let pi_p_h_1_x_i_bytes = cipher.encrypt(nonce, p_h_1_x_i_string.as_bytes().as_ref())?;
-        let pi_p_h_1_x_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&pi_p_h_1_x_i_bytes);
+        let pi_p_h_1_x_i_bytes = cipher.encrypt(nonce, p_h_1_x_i_string.as_bytes().as_ref());
+        assert!(pi_p_h_1_x_i_bytes.is_ok());
+        let pi_p_h_1_x_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&pi_p_h_1_x_i_bytes.unwrap());
         
         let k_i = pi_p_h_1_x_i.pow(&a);
 
@@ -165,8 +195,10 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
     // step #6
     // TODO: shuffle K
 
-    /* the sender sends K to the receiver */
+    capital_k
+}
 
+fn receiver_2(capital_k: Vec<Fp<MontBackend<FqConfig, 1>, 1>>, m: Fq, b_i_array: Vec<BigInt<4>>) {
     // step #7
     let mut output: Vec<u64> = Vec::new();
     for i in 0..SET_Y.len() {
@@ -186,16 +218,7 @@ fn main() -> Result<(), aes_gcm_siv::Error> {
             output.push(SET_Y[i]);
         }
     }
-
-    println!("{:?}", output);
-
-    Ok(())
 }
-
-
-// stolen from https://github.com/TheAlgorithms/Rust/blob/master/src/math/interpolation.rs
-// [deleted]
-
 
 // stolen from https://github.com/arkworks-rs/sumcheck/blob/f4d971ee02a3116442bf393c305a734933b20dde/src/ml_sumcheck/protocol/verifier.rs#L139
 /// interpolate the *unique* univariate polynomial of degree *at most*
