@@ -46,7 +46,7 @@ pub fn sender_1() -> (BigInteger256, Fq) {
     (a, m)
 }
 
-pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
+pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: those looooooong types are ugly
     // TODO: these should be global variables
@@ -73,6 +73,7 @@ pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -
         // In AES, encryption and decryption are done by the same operation
         // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
         // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
+        // TODO: is is_ok() fair or should I propagate the error with Result<T, E>?
         let f_i_bytes = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref());
         assert!(f_i_bytes.is_ok());
         let f_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&f_i_bytes.unwrap());
@@ -108,7 +109,7 @@ pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -
     (poly, b_i_array)
 }
 
-pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: [u64; 3]) -> Vec<Fp<MontBackend<FqConfig, 1>, 1>> {
+pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) -> Vec<Fp<MontBackend<FqConfig, 1>, 1>> {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: those looooooong types are ugly
     // TODO: these should be global variables
@@ -147,6 +148,7 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: [u64; 3]) 
         // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
         // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
         // TODO: why does it give an error when I run `.decrypt`?
+        // TODO: is is_ok() fair or should I propagate the error with Result<T, E>?
         let pi_p_h_1_x_i_bytes = cipher.encrypt(nonce, p_h_1_x_i_string.as_bytes().as_ref());
         assert!(pi_p_h_1_x_i_bytes.is_ok());
         let pi_p_h_1_x_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&pi_p_h_1_x_i_bytes.unwrap());
@@ -172,7 +174,7 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: [u64; 3]) 
     capital_k
 }
 
-pub fn receiver_2(capital_k: Vec<Fp<MontBackend<FqConfig, 1>, 1>>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: [u64; 3]) {
+pub fn receiver_2(capital_k: Vec<Fp<MontBackend<FqConfig, 1>, 1>>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &Vec<u64>) {
     // step #7
     let mut output: Vec<u64> = Vec::new();
     for i in 0..set_y.len() {
