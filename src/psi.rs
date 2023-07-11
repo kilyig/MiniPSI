@@ -30,35 +30,7 @@ use aes_gcm_siv::{
 pub struct FqConfig;
 pub type Fq = Fp64<MontBackend<FqConfig, 1>>;
 
-// private set of the sender
-const SET_X: [u64; 3] = [1u64, 2u64, 3u64];
-
-// private set of the receiver
-const SET_Y: [u64; 3] = [3u64, 4u64, 5u64];
-
-// changed the main() signature due to the AES implementation
-// inspired by https://stackoverflow.com/questions/24245276/why-does-rust-not-have-a-return-value-in-the-main-function-and-how-to-return-a
-fn main() -> Result<(), aes_gcm_siv::Error> {
-
-    let (a, m) = sender_1();
-
-    /* the sender sends m to the receiver */
-    
-    let (poly, b_i_array) = receiver_1(m, SET_Y);
-
-    /* the receiver sends poly to the receiver */
-
-    let capital_k = sender_2(a, poly);
-
-    /* the sender sends K to the receiver */
-
-    let output = receiver_2(capital_k, m, b_i_array);
-    println!("{:?}", output);
-
-    Ok(())
-}
-
-fn sender_1() -> (BigInteger256, Fq) {
+pub fn sender_1() -> (BigInteger256, Fq) {
     // generator for the group. agreed by both parties
     // TODO: generator should be a global variable
     let generator: Fq = Fq::from(3);
@@ -74,7 +46,7 @@ fn sender_1() -> (BigInteger256, Fq) {
     (a, m)
 }
 
-fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
+pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: those looooooong types are ugly
     // TODO: these should be global variables
@@ -110,10 +82,10 @@ fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -> (D
     // P = interpol_F
     // first we need to hash the y_i values
     let mut y_hashes: Vec<_> = Vec::new();
-    for i in 0..SET_Y.len() {
+    for i in 0..set_y.len() {
         // https://docs.rs/sha2/latest/sha2/
         let mut hasher = Sha256::new();
-        hasher.update(SET_Y[i].to_le_bytes());
+        hasher.update(set_y[i].to_le_bytes());
         let result = hasher.finalize();
 
         // need to shorten it to u64 for now.
@@ -136,7 +108,7 @@ fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -> (D
     (poly, b_i_array)
 }
 
-fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>) -> Vec<Fp<MontBackend<FqConfig, 1>, 1>> {
+pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: [u64; 3]) -> Vec<Fp<MontBackend<FqConfig, 1>, 1>> {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: those looooooong types are ugly
     // TODO: these should be global variables
@@ -156,9 +128,9 @@ fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>) -> Vec<Fp<MontBackend
     // step #5
     let mut capital_k: Vec<_> = Vec::new();
     // for i \in [n]:
-    for i in 0..SET_X.len() {
+    for i in 0..set_x.len() {
         // k_i = KA.key_1(a, \Pi(P(H_1(x_i))))
-        let x_i = SET_X[i];
+        let x_i = set_x[i];
 
         // H_1(x_i)
         let mut hasher = Sha256::new();
@@ -200,16 +172,16 @@ fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>) -> Vec<Fp<MontBackend
     capital_k
 }
 
-fn receiver_2(capital_k: Vec<Fp<MontBackend<FqConfig, 1>, 1>>, m: Fq, b_i_array: Vec<BigInt<4>>) {
+pub fn receiver_2(capital_k: Vec<Fp<MontBackend<FqConfig, 1>, 1>>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: [u64; 3]) {
     // step #7
     let mut output: Vec<u64> = Vec::new();
-    for i in 0..SET_Y.len() {
+    for i in 0..set_y.len() {
         // KA.key_2(b_i, m)
         let key_2 = m.pow(b_i_array[i]);
 
         let mut hasher2 = Sha256::new();
         // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
-        hasher2.update(SET_Y[i].to_le_bytes());
+        hasher2.update(set_y[i].to_le_bytes());
         let key_2_string: String = std::format!("{key_2}");
         hasher2.update(key_2_string.as_bytes());
         let h_2_bytes = hasher2.finalize();
@@ -217,7 +189,7 @@ fn receiver_2(capital_k: Vec<Fp<MontBackend<FqConfig, 1>, 1>>, m: Fq, b_i_array:
         let h_2 = <Fq as PrimeField>::from_le_bytes_mod_order(h_2_bytes[..].try_into().unwrap());
 
         if capital_k.contains(&h_2) {
-            output.push(SET_Y[i]);
+            output.push(set_y[i]);
         }
     }
 }
