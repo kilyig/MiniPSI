@@ -104,6 +104,7 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
         // then, calculate the KA key
         let k_i: Fq = permuted.pow(a);
 
+        // finally, hash x_i and k_i
         let k_prime_i: Fq = hash_2(x_i, k_i);
 
         capital_k.push(k_prime_i);
@@ -111,8 +112,8 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
 
     // step #6
     // TODO: shuffle K
-
     capital_k
+    
 }
 
 fn pi(input: Fq) -> Fq {
@@ -171,18 +172,11 @@ pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &
     let mut output: Vec<u64> = Vec::new();
     for i in 0..set_y.len() {
         // KA.key_2(b_i, m)
-        let key_2 = m.pow(b_i_array[i]);
+        let key_2: Fq = m.pow(b_i_array[i]);
 
-        let mut hasher = Sha256::new();
-        // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
-        hasher.update(set_y[i].to_le_bytes());
-        let key_2_string: String = std::format!("{key_2}");
-        hasher.update(key_2_string.as_bytes());
-        let h_2_bytes = hasher.finalize();
+        let hash: Fq = hash_2(set_y[i], key_2);
 
-        let h_2: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(h_2_bytes[..].try_into().unwrap());
-
-        if capital_k.contains(&h_2) {
+        if capital_k.contains(&hash) {
             output.push(set_y[i]);
         }
     }
