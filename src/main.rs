@@ -70,7 +70,7 @@ fn sender_1() -> (BigInteger256, Fq) {
 
     // step #2
     // m = KA.msg_1(a)
-    let m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1> = generator.pow(&a);
+    let m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1> = generator.pow(a);
 
     (a, m)
 }
@@ -95,7 +95,7 @@ fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -> (D
         println!("Random u64 value: {}", b_i);
 
         // m^'_i = KA.msg_2(b_1, m)
-        let m_prime_i = m.pow(&b_i);
+        let m_prime_i = m.pow(b_i);
 
         // f_i = \Pi^{-1}(m^'_i)
         let m_prime_i_string: String = std::format!("{m_prime_i}");
@@ -177,7 +177,7 @@ fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>) -> Vec<Fp<MontBackend
         assert!(pi_p_h_1_x_i_bytes.is_ok());
         let pi_p_h_1_x_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&pi_p_h_1_x_i_bytes.unwrap());
         
-        let k_i = pi_p_h_1_x_i.pow(&a);
+        let k_i = pi_p_h_1_x_i.pow(a);
 
         let mut hasher2 = Sha256::new();
         // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
@@ -203,7 +203,7 @@ fn receiver_2(capital_k: Vec<Fp<MontBackend<FqConfig, 1>, 1>>, m: Fq, b_i_array:
     let mut output: Vec<u64> = Vec::new();
     for i in 0..SET_Y.len() {
         // KA.key_2(b_i, m)
-        let key_2 = m.pow(&b_i_array[i]);
+        let key_2 = m.pow(b_i_array[i]);
 
         let mut hasher2 = Sha256::new();
         // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
