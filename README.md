@@ -1,1 +1,3 @@
 # MiniPSI
+
+Run `cargo test`.
