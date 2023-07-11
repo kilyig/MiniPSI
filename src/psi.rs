@@ -11,6 +11,7 @@ use ark_poly::{
     DenseUVPolynomial, Polynomial
 };
 
+use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, rngs::ThreadRng};
 
 // https://docs.rs/sha2/latest/sha2/
@@ -77,7 +78,7 @@ pub fn receiver_1(m: Fq, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt
     // now, create the polynomial. currently, the polynomial is in the evaluation 
     // form, but this form does render the protocol useless.
 
-    // the following polynomial is random (so, a different poly than the one sent by the receiver)
+    // the following polynomial is random (so, a different poly than the one that needs to be sent by the receiver)
     // TODO: make sure that P is actually produced through interpolation
     let poly: DensePolynomial::<Fq> = DensePolynomial::<Fq>::rand(20 - 1, &mut rng);
     
@@ -89,7 +90,6 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
     let mut capital_k: Vec<Fq> = Vec::new();
     // for i \in [n]:
     for i in 0..set_x.len() {
-        // k_i = KA.key_1(a, \Pi(P(H_1(x_i))))
         let x_i: u64 = set_x[i];
 
         // first, hash x_i
@@ -111,9 +111,12 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
     }
 
     // step #6
-    // TODO: shuffle K
+    // shuffle K
+    // https://rust-random.github.io/rand/rand/seq/trait.SliceRandom.html#example-4
+    let mut rng: ThreadRng = thread_rng();
+    capital_k.shuffle(&mut rng);
+
     capital_k
-    
 }
 
 fn pi(input: Fq) -> Fq {
@@ -129,7 +132,7 @@ fn pi(input: Fq) -> Fq {
     // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
     // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
     // TODO: why does it give an error when I run `.decrypt`?
-    // TODO: is is_ok() fair or should I propagate the error with Result<T, E>?
+    // TODO: is is_ok() okay (lol) or should I propagate the error with Result<T, E>?
     let permuted_bytes = cipher.encrypt(nonce, input_string.as_bytes().as_ref());
     assert!(permuted_bytes.is_ok());
     let permuted: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&permuted_bytes.unwrap());
