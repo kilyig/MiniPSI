@@ -1,19 +1,17 @@
-// Defining your own field
-// To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
-// We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
-
+use aes;
 use aes::cipher::typenum::{UInt, UTerm, B0, B1};
-use ark_ff::fields::{Field, Fp64, MontBackend, MontConfig};
-use ark_ff::{BigInteger256, PrimeField};
-use ark_ff::Fp;
-use ark_ff::BigInt;
 
-use ark_poly::DenseUVPolynomial;
-use ark_poly::univariate::DensePolynomial;
+use ark_ff::{
+    fields::{Field, Fp64, MontBackend, MontConfig},
+    BigInteger256, PrimeField, Fp, BigInt
+};
+
+use ark_poly::{
+    univariate::DensePolynomial,
+    DenseUVPolynomial, Polynomial
+};
 
 use rand::{thread_rng, Rng};
-
-use ark_poly::Polynomial;
 
 // https://docs.rs/sha2/latest/sha2/
 use sha2::{Sha256, Digest};
@@ -23,8 +21,9 @@ use aes_gcm_siv::{
     Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
 };
 
-use aes;
-
+// Defining your own field
+// To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
+// We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
 #[derive(MontConfig)]
 #[modulus = "2305843009213693951"] // a Mersenne prime
 #[generator = "3"]
@@ -128,7 +127,7 @@ fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: [u64; 3]) -> (D
     println!("{:?}", f_i_array);
 
     // now, create the polynomial. currently, the polynomial is in the evaluation 
-    // form, but this form might render the protocol useless.
+    // form, but this form does render the protocol useless.
 
     // the following polynomial is a different poly than the one sent by the receiver
     // TODO: make sure that the sent P and the received P are the same
@@ -147,6 +146,9 @@ fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>) -> Vec<Fp<MontBackend
 
     // copied from https://github.com/arkworks-rs/sumcheck/blob/f4d971ee02a3116442bf393c305a734933b20dde/src/ml_sumcheck/protocol/verifier.rs#L298C13-L298C13
     // test a polynomial with 20 known points, i.e., with degree 19
+    // TODO: need a function that calculates the coefficients of the Lagrange polynomial from the evaluation points
+    //       because I don't have it right now, I'm generating eval values from a known polynomial and using functions
+    //       that receive evals as input to calculate the value of a function at a given point.
     let evals = (0..20)
         .map(|i| poly.evaluate(&Fq::from(i)))
         .collect::<Vec<Fq>>();
