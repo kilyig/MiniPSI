@@ -24,5 +24,7 @@ fn test_two_small_sets() {
     /* the sender sends K to the receiver */
 
     let output = receiver_2(capital_k, m, b_i_array, &set_y);
+
+    // currently doesn't reveal 3, because the interpolation function is not there
     println!("{:?}", output);
 }
