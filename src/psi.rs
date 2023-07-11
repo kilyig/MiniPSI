@@ -3,7 +3,7 @@ use aes::cipher::typenum::{UInt, UTerm, B0, B1};
 
 use ark_ff::{
     fields::{Field, Fp64, MontBackend, MontConfig},
-    BigInteger256, PrimeField, Fp, BigInt
+    BigInteger256, PrimeField, BigInt
 };
 
 use ark_poly::{
@@ -41,12 +41,12 @@ pub fn sender_1() -> (BigInteger256, Fq) {
 
     // step #2
     // m = KA.msg_1(a)
-    let m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1> = generator.pow(a);
+    let m: Fq = generator.pow(a);
 
     (a, m)
 }
 
-pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
+pub fn receiver_1(m: Fq, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: those looooooong types are ugly
     // TODO: these should be global variables
@@ -56,8 +56,8 @@ pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: &Vec<u64>) 
 
     // step #3
     let mut rng = thread_rng();
-    let mut f_i_array: Vec<_> = Vec::new();
-    let mut b_i_array: Vec<_> = Vec::new();
+    let mut b_i_array: Vec<BigInt<4>> = Vec::new();
+    let mut f_i_array: Vec<Fq> = Vec::new();
     // for i \in [n]:
     for _ in 0..set_y.len() {
         // b_i <-- KA.R
@@ -76,13 +76,13 @@ pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: &Vec<u64>) 
         // TODO: is is_ok() fair or should I propagate the error with Result<T, E>?
         let f_i_bytes = cipher.encrypt(nonce, m_prime_i_string.as_bytes().as_ref());
         assert!(f_i_bytes.is_ok());
-        let f_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&f_i_bytes.unwrap());
+        let f_i: Fq =  <Fq as PrimeField>::from_le_bytes_mod_order(&f_i_bytes.unwrap());
         f_i_array.push(f_i);
     }
 
     // P = interpol_F
     // first we need to hash the y_i values
-    let mut y_hashes: Vec<_> = Vec::new();
+    let mut y_hashes: Vec<Fq> = Vec::new();
     for i in 0..set_y.len() {
         // https://docs.rs/sha2/latest/sha2/
         let mut hasher = Sha256::new();
@@ -91,7 +91,7 @@ pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: &Vec<u64>) 
 
         // need to shorten it to u64 for now.
         // represent those 8 bytes as a single u64
-        let hash = <Fq as PrimeField>::from_le_bytes_mod_order(result[..].try_into().unwrap());
+        let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(result[..].try_into().unwrap());
 
         y_hashes.push(hash);
     }
@@ -109,7 +109,7 @@ pub fn receiver_1(m: ark_ff::Fp<MontBackend<FqConfig, 1>, 1>, set_y: &Vec<u64>) 
     (poly, b_i_array)
 }
 
-pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) -> Vec<Fp<MontBackend<FqConfig, 1>, 1>> {
+pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) -> Vec<Fq> {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: those looooooong types are ugly
     // TODO: these should be global variables
@@ -127,17 +127,17 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
         .collect::<Vec<Fq>>();
 
     // step #5
-    let mut capital_k: Vec<_> = Vec::new();
+    let mut capital_k: Vec<Fq> = Vec::new();
     // for i \in [n]:
     for i in 0..set_x.len() {
         // k_i = KA.key_1(a, \Pi(P(H_1(x_i))))
-        let x_i = set_x[i];
+        let x_i: u64 = set_x[i];
 
         // H_1(x_i)
         let mut hasher = Sha256::new();
         hasher.update(x_i.to_le_bytes());
         let result = hasher.finalize();
-        let h_1_x_i = <Fq as PrimeField>::from_le_bytes_mod_order(result[..].try_into().unwrap());
+        let h_1_x_i: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(result[..].try_into().unwrap());
 
         // P(H_1(x_i))
         let p_h_1_x_i = interpolate_uni_poly(&evals, h_1_x_i);
@@ -151,7 +151,7 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
         // TODO: is is_ok() fair or should I propagate the error with Result<T, E>?
         let pi_p_h_1_x_i_bytes = cipher.encrypt(nonce, p_h_1_x_i_string.as_bytes().as_ref());
         assert!(pi_p_h_1_x_i_bytes.is_ok());
-        let pi_p_h_1_x_i =  <Fq as PrimeField>::from_le_bytes_mod_order(&pi_p_h_1_x_i_bytes.unwrap());
+        let pi_p_h_1_x_i: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&pi_p_h_1_x_i_bytes.unwrap());
         
         let k_i = pi_p_h_1_x_i.pow(a);
 
@@ -162,8 +162,7 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
         hasher2.update(k_i_string.as_bytes());
         let k_prime_i_bytes = hasher2.finalize();
 
-        let k_prime_i = <Fq as PrimeField>::from_le_bytes_mod_order(k_prime_i_bytes[..].try_into().unwrap());
-
+        let k_prime_i: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(k_prime_i_bytes[..].try_into().unwrap());
 
         capital_k.push(k_prime_i);
     }
@@ -174,21 +173,21 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
     capital_k
 }
 
-pub fn receiver_2(capital_k: Vec<Fp<MontBackend<FqConfig, 1>, 1>>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &Vec<u64>) {
+pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &Vec<u64>) {
     // step #7
     let mut output: Vec<u64> = Vec::new();
     for i in 0..set_y.len() {
         // KA.key_2(b_i, m)
         let key_2 = m.pow(b_i_array[i]);
 
-        let mut hasher2 = Sha256::new();
+        let mut hasher = Sha256::new();
         // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
-        hasher2.update(set_y[i].to_le_bytes());
+        hasher.update(set_y[i].to_le_bytes());
         let key_2_string: String = std::format!("{key_2}");
-        hasher2.update(key_2_string.as_bytes());
-        let h_2_bytes = hasher2.finalize();
+        hasher.update(key_2_string.as_bytes());
+        let h_2_bytes = hasher.finalize();
 
-        let h_2 = <Fq as PrimeField>::from_le_bytes_mod_order(h_2_bytes[..].try_into().unwrap());
+        let h_2: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(h_2_bytes[..].try_into().unwrap());
 
         if capital_k.contains(&h_2) {
             output.push(set_y[i]);
