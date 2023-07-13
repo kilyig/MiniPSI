@@ -14,7 +14,6 @@
 /// to the receiver.
 
 use aes;
-use aes::cipher::typenum::{UInt, UTerm, B0, B1};
 
 use ark_ff::{
     fields::{Field, Fp64, MontBackend, MontConfig},
@@ -26,7 +25,6 @@ use ark_poly::{
     DenseUVPolynomial, Polynomial
 };
 
-use fast_eval::fft::FftProcessor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, rngs::ThreadRng};
 
@@ -37,8 +35,6 @@ use aes_gcm_siv::{
     aead::{Aead, KeyInit, OsRng},
     Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
 };
-
-use fast_eval::PolyProcessor;
 
 // Defining your own field
 // To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
