@@ -26,6 +26,7 @@ use ark_poly::{
     DenseUVPolynomial, Polynomial
 };
 
+use fast_eval::fft::FftProcessor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, rngs::ThreadRng};
 
@@ -36,6 +37,8 @@ use aes_gcm_siv::{
     aead::{Aead, KeyInit, OsRng},
     Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
 };
+
+use fast_eval::PolyProcessor;
 
 // Defining your own field
 // To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
@@ -114,6 +117,11 @@ pub fn receiver_1(m: Fq, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt
     // TODO: make sure that P is actually produced through interpolation
     let poly: DensePolynomial::<Fq> = DensePolynomial::<Fq>::rand(20 - 1, &mut rng);
     
+    // let poly_fast_eval: DensePolynomial::<Fq> = DensePolynomial::<Fq>::rand(20 - 1, &mut rng);
+
+    // let processor = FftProcessor<Fq>
+    // let abcd = FftProcessor::interpolate(FftProcessor, &f_i_array);
+
     (poly, b_i_array)
 }
 
@@ -207,11 +215,10 @@ pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &
 /// * `permuted` - A field element
 fn pi(input: Fq) -> Fq {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
-    // TODO: those looooooong types are ugly
     // TODO: these should be global variables
-    let key: aes::cipher::generic_array::GenericArray<u8, UInt<UInt<UInt<UInt<UInt<UTerm, B1>, B0>, B0>, B0>, B0>> = Aes128GcmSiv::generate_key(&mut OsRng);
-    let cipher: aes_gcm_siv::AesGcmSiv<aes::Aes128> = Aes128GcmSiv::new(&key);
-    let nonce: &aes::cipher::generic_array::GenericArray<u8, aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UInt<aes::cipher::typenum::UTerm, aes::cipher::typenum::B1>, aes::cipher::typenum::B1>, aes::cipher::typenum::B0>, aes::cipher::typenum::B0>> = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+    let key = Aes128GcmSiv::generate_key(&mut OsRng);
+    let cipher = Aes128GcmSiv::new(&key);
+    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
 
     let input_string: String = std::format!("{input}");
     // In AES, encryption and decryption are done by the same operation
