@@ -248,7 +248,7 @@ fn hash_1(input: u64) -> Fq {
 
     // need to shorten it to u64 for now.
     // represent those 8 bytes as a single u64
-    let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(result[..].try_into().unwrap());
+    let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&result);
 
     hash
 }
@@ -273,7 +273,7 @@ fn hash_2(input1: u64, input2: Fq) -> Fq {
     hasher.update(k_i_string.as_bytes());
     let k_prime_i_bytes = hasher.finalize();
 
-    let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(k_prime_i_bytes[..].try_into().unwrap());
+    let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&k_prime_i_bytes);
 
     hash
 }
