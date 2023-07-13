@@ -13,8 +13,6 @@
 /// with the output of `sender_2`. The output of `receiver_2` reveals the intersection
 /// to the receiver.
 
-use aes;
-
 use ark_ff::{
     fields::{Field, Fp64, MontBackend, MontConfig},
     BigInteger256, PrimeField, BigInt
