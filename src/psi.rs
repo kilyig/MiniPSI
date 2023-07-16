@@ -14,7 +14,7 @@
 /// to the receiver.
 
 use ark_ff::{
-    fields::{Field, Fp64, MontBackend, MontConfig},
+    fields::Field,
     BigInteger256, PrimeField, BigInt
 };
 
@@ -23,7 +23,6 @@ use ark_poly::{
     DenseUVPolynomial, Polynomial
 };
 
-use ark_std::test_rng;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, rngs::ThreadRng};
 
@@ -38,7 +37,6 @@ use aes_gcm_siv::{
 };
 
 use ark_ff::FftField;
-use ark_ff::UniformRand;
 
 // Defining your own field
 // To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
@@ -113,14 +111,10 @@ pub fn receiver_1(m: Fr, set_y: &Vec<u64>) -> (DensePolynomial::<Fr>, Vec<BigInt
         y_hashes.push(hash);
     }
 
-    // the following polynomial is random (so, a different poly than the one that needs to be sent by the receiver)
-    // TODO: make sure that P is actually produced through interpolation
-    let poly: DensePolynomial::<Fr> = DensePolynomial::<Fr>::rand(20 - 1, &mut rng);
-    
-    // let poly_fast_eval: DensePolynomial::<Fr> = DensePolynomial::<Fr>::rand(20 - 1, &mut rng);
+    let poly = interpolate(y_hashes, f_i_array);
 
-    // let processor = FftProcessor<Fr>
-    // let abcd = FftProcessor::interpolate(FftProcessor, &f_i_array);
+    // let deneme = poly.evaluate(&Fr::from(1));
+    // println!("valueeee: {:?}", deneme);
 
     (poly, b_i_array)
 }
@@ -186,6 +180,11 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fr>, set_x: Vec<u64>) 
 ///
 /// * `intersection` - The subset of the receiver's private set that only includes every element in the intersection
 pub fn receiver_2(capital_k: Vec<Fr>, m: Fr, b_i_array: Vec<BigInt<4>>, set_y: &Vec<u64>) -> Vec<u64> {
+    
+    for elt in &capital_k {
+        println!("capital_k elt: {:?}", elt);
+    }
+
     // step #7
     let mut intersection: Vec<u64> = Vec::new();
     for i in 0..set_y.len() {
@@ -193,6 +192,9 @@ pub fn receiver_2(capital_k: Vec<Fr>, m: Fr, b_i_array: Vec<BigInt<4>>, set_y: &
         let key_2: Fr = m.pow(b_i_array[i]);
 
         let hash: Fr = hash_2(set_y[i], key_2);
+
+        println!("hash: {:?}", hash);
+
 
         if capital_k.contains(&hash) {
             intersection.push(set_y[i]);
@@ -214,6 +216,27 @@ pub fn receiver_2(capital_k: Vec<Fr>, m: Fr, b_i_array: Vec<BigInt<4>>, set_y: &
 ///
 /// * `permuted` - A field element
 fn pi(input: Fr) -> Fr {
+    // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
+    // TODO: these should be global variables
+    let key = Aes128GcmSiv::generate_key(&mut OsRng);
+    let cipher = Aes128GcmSiv::new(&key);
+    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+
+    let input_string: String = std::format!("{input}");
+    // In AES, encryption and decryption are done by the same operation
+    // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
+    // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
+    // TODO: why does it give an error when I run `.decrypt`?
+    // TODO: is is_ok() okay (lol) or should I propagate the error with Result<T, E>?
+    // TODO: test whether applying cipher.encrypt gives you the initial value (how is this possible?)
+    let permuted_bytes = cipher.encrypt(nonce, input_string.as_bytes().as_ref());
+    assert!(permuted_bytes.is_ok());
+    let permuted: Fr = <Fr as PrimeField>::from_le_bytes_mod_order(&permuted_bytes.unwrap());
+
+    permuted
+}
+
+fn pi_inverse(input: Fr) -> Fr {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: these should be global variables
     let key = Aes128GcmSiv::generate_key(&mut OsRng);
@@ -305,21 +328,14 @@ fn construct_lagrange_basis<F: FftField>(evaluation_domain: &[F]) -> Vec<DensePo
     bases
 }
 
+fn interpolate(roots: Vec<Fr>, f_evals: Vec<Fr>) -> DensePolynomial<Fr> {
 
-#[test]
-fn test_interpolation_lib() {
-    let n: usize = 32;
-    let mut rng = test_rng();
-
-    let roots: Vec<_> = (0..n).map(|_| Fr::rand(&mut rng)).collect();
-    
     let lagrange_basis = construct_lagrange_basis(&roots);
-    let f_evals: Vec<_> = (0..n).map(|_| Fr::rand(&mut rng)).collect();
 
     let mut f_slow = DensePolynomial::default();
     for (li, &fi) in lagrange_basis.iter().zip(f_evals.iter()) {
         f_slow += (fi, li);
     }
 
-    println!("polyyy: {:?}", f_slow);
+    f_slow
 }
