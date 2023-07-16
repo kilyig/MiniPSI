@@ -23,8 +23,11 @@ use ark_poly::{
     DenseUVPolynomial, Polynomial
 };
 
+use ark_std::test_rng;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, rngs::ThreadRng};
+
+use ark_bn254::Fr;
 
 // https://docs.rs/sha2/latest/sha2/
 use sha2::{Sha256, Digest};
@@ -33,6 +36,9 @@ use aes_gcm_siv::{
     aead::{Aead, KeyInit, OsRng},
     Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
 };
+
+use ark_ff::FftField;
+use ark_ff::UniformRand;
 
 // Defining your own field
 // To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
@@ -274,4 +280,46 @@ fn hash_2(input1: u64, input2: Fq) -> Fq {
     let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&k_prime_i_bytes);
 
     hash
+}
+
+/// given x coords construct Li polynomials
+fn construct_lagrange_basis<F: FftField>(evaluation_domain: &[F]) -> Vec<DensePolynomial<F>> {
+    let mut bases = Vec::with_capacity(evaluation_domain.len());
+    for i in 0..evaluation_domain.len() {
+        let mut l_i = DensePolynomial::from_coefficients_slice(&[F::one()]);
+        let x_i = evaluation_domain[i];
+        for (j, _) in evaluation_domain.iter().enumerate() {
+            if j != i {
+                let xi_minus_xj_inv = (x_i - evaluation_domain[j]).inverse().unwrap();
+                l_i = &l_i
+                    * &DensePolynomial::from_coefficients_slice(&[
+                        -evaluation_domain[j] * xi_minus_xj_inv,
+                        xi_minus_xj_inv,
+                    ]);
+            }
+        }
+
+        bases.push(l_i);
+    }
+
+    bases
+}
+
+
+#[test]
+fn test_interpolation_lib() {
+    let n: usize = 32;
+    let mut rng = test_rng();
+
+    let roots: Vec<_> = (0..n).map(|_| Fr::rand(&mut rng)).collect();
+    
+    let lagrange_basis = construct_lagrange_basis(&roots);
+    let f_evals: Vec<_> = (0..n).map(|_| Fr::rand(&mut rng)).collect();
+
+    let mut f_slow = DensePolynomial::default();
+    for (li, &fi) in lagrange_basis.iter().zip(f_evals.iter()) {
+        f_slow += (fi, li);
+    }
+
+    println!("polyyy: {:?}", f_slow);
 }
