@@ -28,24 +28,22 @@ use rand::{thread_rng, Rng, rngs::ThreadRng};
 
 use ark_bn254::Fr;
 
+// TODO: put these into a mod for tests?
+// like https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs#L158
+use ark_ff::UniformRand;
+use ark_std::test_rng;
+
 // https://docs.rs/sha2/latest/sha2/
 use sha2::{Sha256, Digest};
 
 use aes_gcm_siv::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
 };
 
 use ark_ff::FftField;
 
-// Defining your own field
-// To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
-// We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
-// #[derive(MontConfig)]
-// #[modulus = "2305843009213693951"] // a Mersenne prime
-// #[generator = "3"]
-// pub struct FrConfig;
-// pub type Fr = Fp64<MontBackend<FrConfig, 1>>;
+const AES_KEY: [u8; 16] = [185, 45, 74, 246, 159, 175, 5, 203, 150, 3, 209, 119, 141, 122, 116, 212];
 
 /// Called by the sender to start the protocol.
 /// Steps #1 and #2 in the paper.
@@ -56,6 +54,7 @@ use ark_ff::FftField;
 /// * `m` - KA message to be inputted to `receiver_1`
 pub fn sender_1() -> (BigInteger256, Fr) {
     let mut rng: ThreadRng = thread_rng();
+
     // generator for the group. agreed by both parties
     // TODO: generator should be a global variable
     let generator: Fr = Fr::from(3);
@@ -83,7 +82,11 @@ pub fn sender_1() -> (BigInteger256, Fr) {
 ///
 /// * `poly` - Polynomial (P in the paper)
 /// * `b_i_array` - Set of random values. To be later used in `receiver_2`
-pub fn receiver_1(m: Fr, set_y: &Vec<u64>) -> (DensePolynomial::<Fr>, Vec<BigInt<4>>) {
+pub fn receiver_1(set_y: &Vec<u64>) -> (DensePolynomial::<Fr>, Vec<BigInt<4>>) {
+    // generator for the group. agreed by both parties
+    // TODO: generator should be a global variable
+    let generator: Fr = Fr::from(3);
+
     // step #3
     let mut rng: ThreadRng = thread_rng();
     let mut b_i_array: Vec<BigInt<4>> = Vec::new();
@@ -95,10 +98,11 @@ pub fn receiver_1(m: Fr, set_y: &Vec<u64>) -> (DensePolynomial::<Fr>, Vec<BigInt
         b_i_array.push(b_i);
 
         // m^'_i = KA.msg_2(b_1, m)
-        let m_prime_i: Fr = m.pow(b_i);
+        let m_prime_i: Fr = generator.pow(b_i);
 
         // f_i = \Pi^{-1}(m^'_i)
-        let f_i: Fr = pi(m_prime_i);
+        // let's cheat for now and assume that the ideal permutation is the identity function
+        let f_i: Fr = m_prime_i; /*pi_inverse(m_prime_i);*/
 
         f_i_array.push(f_i);
     }
@@ -111,10 +115,7 @@ pub fn receiver_1(m: Fr, set_y: &Vec<u64>) -> (DensePolynomial::<Fr>, Vec<BigInt
         y_hashes.push(hash);
     }
 
-    let poly = interpolate(y_hashes, f_i_array);
-
-    // let deneme = poly.evaluate(&Fr::from(1));
-    // println!("valueeee: {:?}", deneme);
+    let poly = interpolate(&y_hashes, &f_i_array);
 
     (poly, b_i_array)
 }
@@ -131,7 +132,7 @@ pub fn receiver_1(m: Fr, set_y: &Vec<u64>) -> (DensePolynomial::<Fr>, Vec<BigInt
 /// # Outputs
 ///
 /// * `capital_k` - Set of field elements (K in the paper)
-pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fr>, set_x: Vec<u64>) -> Vec<Fr> {
+pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fr>, set_x: &Vec<u64>) -> Vec<Fr> {    
     // TODO: abort if deg(P) < 1
     // step #5
     let mut capital_k: Vec<Fr> = Vec::new();
@@ -146,7 +147,8 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fr>, set_x: Vec<u64>) 
         let poly_eval: Fr = poly.evaluate(&hash);
 
         // then, pass the output to the ideal permutation
-        let permuted: Fr = pi(poly_eval);
+        // let's cheat for now and assume that the ideal permutation is the identity function
+        let permuted: Fr = poly_eval;/*pi(poly_eval);*/
         
         // then, calculate the KA key
         let k_i: Fr = permuted.pow(a);
@@ -180,11 +182,6 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fr>, set_x: Vec<u64>) 
 ///
 /// * `intersection` - The subset of the receiver's private set that only includes every element in the intersection
 pub fn receiver_2(capital_k: Vec<Fr>, m: Fr, b_i_array: Vec<BigInt<4>>, set_y: &Vec<u64>) -> Vec<u64> {
-    
-    for elt in &capital_k {
-        println!("capital_k elt: {:?}", elt);
-    }
-
     // step #7
     let mut intersection: Vec<u64> = Vec::new();
     for i in 0..set_y.len() {
@@ -192,9 +189,6 @@ pub fn receiver_2(capital_k: Vec<Fr>, m: Fr, b_i_array: Vec<BigInt<4>>, set_y: &
         let key_2: Fr = m.pow(b_i_array[i]);
 
         let hash: Fr = hash_2(set_y[i], key_2);
-
-        println!("hash: {:?}", hash);
-
 
         if capital_k.contains(&hash) {
             intersection.push(set_y[i]);
@@ -218,8 +212,7 @@ pub fn receiver_2(capital_k: Vec<Fr>, m: Fr, b_i_array: Vec<BigInt<4>>, set_y: &
 fn pi(input: Fr) -> Fr {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: these should be global variables
-    let key = Aes128GcmSiv::generate_key(&mut OsRng);
-    let cipher = Aes128GcmSiv::new(&key);
+    let cipher = Aes128GcmSiv::new(&AES_KEY.into());
     let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
 
     let input_string: String = std::format!("{input}");
@@ -239,8 +232,7 @@ fn pi(input: Fr) -> Fr {
 fn pi_inverse(input: Fr) -> Fr {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     // TODO: these should be global variables
-    let key = Aes128GcmSiv::generate_key(&mut OsRng);
-    let cipher = Aes128GcmSiv::new(&key);
+    let cipher = Aes128GcmSiv::new(&AES_KEY.into());
     let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
 
     let input_string: String = std::format!("{input}");
@@ -250,7 +242,7 @@ fn pi_inverse(input: Fr) -> Fr {
     // TODO: why does it give an error when I run `.decrypt`?
     // TODO: is is_ok() okay (lol) or should I propagate the error with Result<T, E>?
     // TODO: test whether applying cipher.encrypt gives you the initial value (how is this possible?)
-    let permuted_bytes = cipher.encrypt(nonce, input_string.as_bytes().as_ref());
+    let permuted_bytes = cipher.decrypt(nonce, input_string.as_bytes().as_ref());
     assert!(permuted_bytes.is_ok());
     let permuted: Fr = <Fr as PrimeField>::from_le_bytes_mod_order(&permuted_bytes.unwrap());
 
@@ -294,7 +286,6 @@ fn hash_1(input: u64) -> Fr {
 fn hash_2(input1: u64, input2: Fr) -> Fr {
     // finally, hash x_i with the output from the previous step
     let mut hasher = Sha256::new();
-    // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
     hasher.update(input1.to_le_bytes());
     let k_i_string: String = std::format!("{input2}");
     hasher.update(k_i_string.as_bytes());
@@ -306,6 +297,7 @@ fn hash_2(input1: u64, input2: Fr) -> Fr {
 }
 
 /// given x coords construct Li polynomials
+/// stolen from https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs
 fn construct_lagrange_basis<F: FftField>(evaluation_domain: &[F]) -> Vec<DensePolynomial<F>> {
     let mut bases = Vec::with_capacity(evaluation_domain.len());
     for i in 0..evaluation_domain.len() {
@@ -328,7 +320,8 @@ fn construct_lagrange_basis<F: FftField>(evaluation_domain: &[F]) -> Vec<DensePo
     bases
 }
 
-fn interpolate(roots: Vec<Fr>, f_evals: Vec<Fr>) -> DensePolynomial<Fr> {
+/// stolen from https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs
+fn interpolate(roots: &Vec<Fr>, f_evals: &Vec<Fr>) -> DensePolynomial<Fr> {
 
     let lagrange_basis = construct_lagrange_basis(&roots);
 
@@ -338,4 +331,25 @@ fn interpolate(roots: Vec<Fr>, f_evals: Vec<Fr>) -> DensePolynomial<Fr> {
     }
 
     f_slow
+}
+
+#[test]
+fn test_aes() {
+    let cipher = Aes128GcmSiv::new(&AES_KEY.into());
+    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+}
+
+#[test]
+fn test_interpolate() {
+    let n: usize = 32;
+    let mut rng = test_rng();
+
+    let roots: Vec<Fr> = (0..n).map(|_| Fr::rand(&mut rng)).collect();    
+    let f_evals: Vec<Fr> = (0..n).map(|_| Fr::rand(&mut rng)).collect();
+
+    let poly = interpolate(&roots, &f_evals);
+
+    for i in 0..roots.len() {
+        assert_eq!(f_evals[i], poly.evaluate(&roots[i]));
+    }
 }
