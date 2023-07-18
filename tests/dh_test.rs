@@ -5,6 +5,8 @@ use mini_psi::dh_psi::{sender_1, receiver_1, receiver_2};
 
 #[test]
 fn test_dh_two_small_sets() {
+    // TODO: allow the sets to contain anything that is hashable
+
     // private set of the sender
     let set_x: Vec<u64> = [1u64, 2u64, 3u64].to_vec();
 
