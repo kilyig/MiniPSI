@@ -1,3 +1,14 @@
+/// This crate implements the semi-honest private set intersection (PSI) protocol described in
+/// page 14 on the PDF at https://cyber.biu.ac.il/wp-content/uploads/2017/01/15.pdf
+///
+/// There are two parties, the sender and the receiver, and each of them have a set of integers (WLOG).
+/// This PSI protocol reveals the intersection of these sets to the receiver.
+/// 
+/// The protocol starts by the receiver running `receiver_1` and sending the output to
+/// the sender. Then, the sender uses the data it receives as input to `sender_1`.
+/// Finally, the receiver runs `receiver_2` with the output of `sender_1`
+/// and the output of `receiver_2` shows the intersection to the receiver.
+
 use ark_ff::{
     fields::{Field, Fp64, MontBackend, MontConfig},
     BigInteger256, PrimeField
@@ -34,9 +45,7 @@ pub fn receiver_1(set_y: &Vec<u64>) -> (Vec<Fq>, BigInteger256) {
     // receiver's randomness
     let alpha: BigInteger256 = rng.gen();
 
-    // TODO: map + collect
-    // relevant link: https://users.rust-lang.org/t/how-can-i-pass-a-function-with-arguments-in-map/43221/2
-    // need a bit more than simple map because alpha needs to be passed in as a parameter
+    // NOTE: this entire code will be part of a zk circuit, so we avoid optimizations
     let mut set_y_alpha: Vec<Fq> = Vec::new();
     for elt in set_y {
         let mapped_to_field_elt = hash(elt);
@@ -94,12 +103,14 @@ pub fn sender_1(set_y_alpha: &Vec<Fq>, set_x: &Vec<u64>) -> (Vec<Fq>, Vec<Fq>) {
 /// * `intersection` - Set that contains the elements in the intersection of `set_y` and `set_x`
 pub fn receiver_2(set_y: &Vec<u64>, alpha: BigInteger256, set_y_alpha_beta: &Vec<Fq>, set_x_beta: &Vec<Fq>) -> Vec<u64> {
 
-    let mut set_x_beta_alpha: Vec<Fq> = Vec::new();
+    // the new array is guaranteed to be exactly as long as the previous one
+    let mut set_x_beta_alpha: Vec<Fq> = Vec::with_capacity(set_x_beta.len());
     for elt in set_x_beta {
         let exponentiated: Fq = elt.pow(alpha);
         set_x_beta_alpha.push(exponentiated);
     }
 
+    // NOTE: this entire code will be part of a zk circuit, so we avoid optimizations
     let mut intersection: Vec<u64> = Vec::new();
     for (i, elt_y) in set_y_alpha_beta.iter().enumerate() {
         for elt_x in set_x_beta_alpha.iter() {
