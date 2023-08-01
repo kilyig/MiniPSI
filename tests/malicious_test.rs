@@ -1,4 +1,4 @@
-use mini_psi::psi::{sender_1, receiver_1, sender_2, receiver_2};
+use mini_psi::mal_psi::{sender_1, receiver_1, sender_2, receiver_2};
 
 // changed the main() signature due to the AES implementation
 // inspired by https://stackoverflow.com/questions/24245276/why-does-rust-not-have-a-return-value-in-the-main-function-and-how-to-return-a
