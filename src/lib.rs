@@ -1,2 +1,2 @@
 pub mod mal_psi;
-pub mod sem_hon_psi;
+pub mod sh_psi;
