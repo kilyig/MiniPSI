@@ -28,8 +28,7 @@ use rand::{thread_rng, Rng, rngs::ThreadRng};
 
 // TODO: put these into a mod for tests?
 // like https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs#L158
-use ark_ff::{UniformRand, MontBackend, MontConfig, Fp64};
-use ark_std::test_rng;
+use ark_ff::{MontBackend, MontConfig, Fp64};
 
 // https://docs.rs/sha2/latest/sha2/
 use sha2::{Sha256, Digest};
@@ -341,29 +340,35 @@ fn interpolate(roots: &Vec<Fq>, f_evals: &Vec<Fq>) -> DensePolynomial<Fq> {
     f_slow
 }
 
-// #[test]
-// fn test_aes() {
-//     let cipher = Aes128GcmSiv::new(&AES_KEY.into());
-//     let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
-// }
+#[cfg(test)]
+mod psi_unit_tests {
+    use crate::psi::{
+        pi, pi_inverse, interpolate, Fq
+    };
 
-#[test]
-fn test_interpolate() {
-    let n: usize = 32;
-    let mut rng = test_rng();
+    use ark_std::test_rng;
+    use ark_ff::UniformRand;
+    use ark_poly::Polynomial;
 
-    let roots: Vec<Fq> = (0..n).map(|_| Fq::rand(&mut rng)).collect();    
-    let f_evals: Vec<Fq> = (0..n).map(|_| Fq::rand(&mut rng)).collect();
+    #[test]
+    fn test_aes() {
+        let a: Fq = Fq::from(123);
+        assert_eq!(a, pi_inverse(pi(a)));
+    }
 
-    // println!("{:?}", roots);
-    // println!("{:?}", f_evals);
+    #[test]
+    fn test_interpolate() {
+        let n: usize = 32;
+        let mut rng = test_rng();
 
-    // let roots: Vec<Fq> = [Fq::from(2u64), Fq::from(3u64), Fq::from(4u64)].to_vec();    
-    // let f_evals: Vec<Fq> = [Fq::from(2u64), Fq::from(3u64), Fq::from(4u64)].to_vec();
+        let roots: Vec<Fq> = (0..n).map(|_| Fq::rand(&mut rng)).collect();    
+        let f_evals: Vec<Fq> = (0..n).map(|_| Fq::rand(&mut rng)).collect();
 
-    let poly = interpolate(&roots, &f_evals);
+        let poly = interpolate(&roots, &f_evals);
 
-    for i in 0..roots.len() {
-        assert_eq!(f_evals[i], poly.evaluate(&roots[i]));
+        for i in 0..roots.len() {
+            assert_eq!(f_evals[i], poly.evaluate(&roots[i]));
+        }
     }
 }
+
