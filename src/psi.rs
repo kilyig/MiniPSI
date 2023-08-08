@@ -51,6 +51,7 @@ pub struct FqConfig;
 pub type Fq = Fp64<MontBackend<FqConfig, 1>>;
 
 const AES_KEY: [u8; 16] = [185, 45, 74, 246, 159, 175, 5, 203, 150, 3, 209, 119, 141, 122, 116, 212];
+const NONCE_SLICE: &[u8; 12] = b"unique nonce";
 
 /// Called by the sender to start the protocol.
 /// Steps #1 and #2 in the paper.
@@ -218,9 +219,8 @@ pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &
 /// * `permuted` - A field element
 fn pi(input: Fq) -> Fq {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
-    // TODO: these should be global variables
     let cipher = Aes128GcmSiv::new(&AES_KEY.into());
-    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+    let nonce = Nonce::from_slice(NONCE_SLICE); // 96-bits; unique per message
 
     let input_string: String = std::format!("{input}");
     // In AES, encryption and decryption are done by the same operation
@@ -238,9 +238,8 @@ fn pi(input: Fq) -> Fq {
 
 fn pi_inverse(input: Fq) -> Fq {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
-    // TODO: these should be global variables
     let cipher = Aes128GcmSiv::new(&AES_KEY.into());
-    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+    let nonce = Nonce::from_slice(NONCE_SLICE); // 96-bits; unique per message
 
     let input_string: String = std::format!("{input}");
     // In AES, encryption and decryption are done by the same operation
