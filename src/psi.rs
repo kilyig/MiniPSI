@@ -217,38 +217,38 @@ pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &
 /// # Outputs
 ///
 /// * `permuted` - A field element
-fn pi(input: Fq) -> Fq {
+fn pi(elt: Fq) -> Fq {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     let cipher = Aes128GcmSiv::new(&AES_KEY.into());
     let nonce = Nonce::from_slice(NONCE_SLICE); // 96-bits; unique per message
 
-    let input_string: String = std::format!("{input}");
+    let elt_string: String = std::format!("{elt}");
     // In AES, encryption and decryption are done by the same operation
     // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
     // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
     // TODO: why does it give an error when I run `.decrypt`?
     // TODO: is is_ok() okay (lol) or should I propagate the error with Result<T, E>?
     // TODO: test whether applying cipher.encrypt gives you the initial value (how is this possible?)
-    let permuted_bytes = cipher.encrypt(nonce, input_string.as_bytes().as_ref());
+    let permuted_bytes = cipher.encrypt(nonce, elt_string.as_bytes().as_ref());
     assert!(permuted_bytes.is_ok());
     let permuted: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&permuted_bytes.unwrap());
 
     permuted
 }
 
-fn pi_inverse(input: Fq) -> Fq {
+fn pi_inverse(elt: Fq) -> Fq {
     // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
     let cipher = Aes128GcmSiv::new(&AES_KEY.into());
     let nonce = Nonce::from_slice(NONCE_SLICE); // 96-bits; unique per message
 
-    let input_string: String = std::format!("{input}");
+    let elt_string: String = std::format!("{elt}");
     // In AES, encryption and decryption are done by the same operation
     // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
     // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
     // TODO: why does it give an error when I run `.decrypt`?
     // TODO: is is_ok() okay (lol) or should I propagate the error with Result<T, E>?
     // TODO: test whether applying cipher.encrypt gives you the initial value (how is this possible?)
-    let permuted_bytes = cipher.decrypt(nonce, input_string.as_bytes().as_ref());
+    let permuted_bytes = cipher.decrypt(nonce, elt_string.as_bytes().as_ref());
     assert!(permuted_bytes.is_ok());
     let permuted: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&permuted_bytes.unwrap());
 
