@@ -43,6 +43,8 @@ use aes::cipher::{
 use ark_ff::FftField;
 use ark_ff::BigInteger;
 
+use std::convert::TryInto;
+
 #[derive(MontConfig)]
 #[modulus = "340282366920938463463374607431768211297"] // 2^128 - 159 (largest prime that can be represented with 128 bits)
 #[generator = "3"]
@@ -87,7 +89,7 @@ pub fn sender_1() -> (BigInteger256, Fq) {
 /// 
 ///  # Outputs
 ///
-/// * `poly` - Polynomial (P in the paper)
+/// * `poly` - Polynomial ($P$ in the paper)
 /// * `b_i_array` - Set of random values. To be later used in `receiver_2`
 pub fn receiver_1(set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
     // generator for the group. agreed by both parties
@@ -138,7 +140,7 @@ pub fn receiver_1(set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
 /// 
 /// # Outputs
 ///
-/// * `capital_k` - Set of field elements (K in the paper)
+/// * `capital_k` - Set of field elements ($K$ in the paper)
 pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: &Vec<u64>) -> Vec<Fq> {    
     // TODO: abort if deg(P) < 1
     // step #5
@@ -206,8 +208,8 @@ pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &
 }
 
 /// Approximation for an ideal permutation.
-/// Uses AES GCM SIV (https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#AES-GCM-SIV)
-/// \Pi (and \Pi^{-1}) in the paper.
+/// Uses AES
+/// $\Pi$ (and $\Pi^{-1}$) in the paper.
 /// 
 /// # Arguments
 ///
@@ -235,12 +237,12 @@ fn pi_inverse(elt: Fq) -> Fq {
     let permuted = block_to_field(block);
 
     permuted
-
 }
 
 fn field_to_block(elt: Fq) -> GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize> {
     let elt_bytes = elt.into_bigint().to_bytes_le();
 
+    // TODO: this is ugly
     let generic_array = GenericArray::from([
         elt_bytes[0],
         elt_bytes[1],
@@ -270,7 +272,7 @@ fn block_to_field(block: GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize>)
 }
 
 /// Hash function from arbitrary string to field element
-/// H_1 in the paper.
+/// $H_1$ in the paper.
 ///
 /// # Arguments
 ///
@@ -285,15 +287,14 @@ fn hash_1(input: u64) -> Fq {
     hasher.update(input.to_le_bytes());
     let result = hasher.finalize();
 
-    // need to shorten it to u64 for now.
-    // represent those 8 bytes as a single u64
+    // map the output of the hash back to a field element
     let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&result);
 
     hash
 }
 
 /// Hash function from arbitrary string x field element to field element
-/// H_2 in the paper.
+/// $H_2$ in the paper.
 ///
 /// # Arguments
 ///
