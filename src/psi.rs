@@ -1,3 +1,4 @@
+use aes::cipher::BlockSizeUser;
 /// This crate implements the malicious private set intersection (PSI) protocol described in
 /// the paper by Rosulek and Trieu titled "Compact and Malicious Private Set Intersection for Small Sets."
 /// An electronic copy of the paper can be found at https://eprint.iacr.org/2021/1159.pdf.
@@ -28,30 +29,27 @@ use rand::{thread_rng, Rng, rngs::ThreadRng};
 
 // TODO: put these into a mod for tests?
 // like https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs#L158
-use ark_ff::{MontBackend, MontConfig, Fp64};
+use ark_ff::{MontBackend, MontConfig, Fp128};
 
 // https://docs.rs/sha2/latest/sha2/
 use sha2::{Sha256, Digest};
 
-use aes_gcm_siv::{
-    aead::{Aead, KeyInit},
-    Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
+use aes::Aes128;
+use aes::cipher::{
+    BlockEncrypt, BlockDecrypt, KeyInit,
+    generic_array::GenericArray,
 };
 
 use ark_ff::FftField;
+use ark_ff::BigInteger;
 
-// 7753 works
-// Defining your own field
-// To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
-// We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
 #[derive(MontConfig)]
-#[modulus = "2305843009213693951"] // a Mersenne prime
+#[modulus = "340282366920938463463374607431768211297"] // 2^128 - 159 (largest prime that can be represented with 128 bits)
 #[generator = "3"]
 pub struct FqConfig;
-pub type Fq = Fp64<MontBackend<FqConfig, 1>>;
+pub type Fq = Fp128<MontBackend<FqConfig, 2>>;
 
 const AES_KEY: [u8; 16] = [185, 45, 74, 246, 159, 175, 5, 203, 150, 3, 209, 119, 141, 122, 116, 212];
-const NONCE_SLICE: &[u8; 12] = b"unique nonce";
 
 /// Called by the sender to start the protocol.
 /// Steps #1 and #2 in the paper.
@@ -65,6 +63,7 @@ pub fn sender_1() -> (BigInteger256, Fq) {
 
     // generator for the group. agreed by both parties
     // TODO: generator should be a global variable
+    // maybe Fq:GENERATOR?
     let generator: Fq = Fq::from(3);
 
     // step #1
@@ -218,39 +217,54 @@ pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &
 ///
 /// * `permuted` - A field element
 fn pi(elt: Fq) -> Fq {
-    // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
-    let cipher = Aes128GcmSiv::new(&AES_KEY.into());
-    let nonce = Nonce::from_slice(NONCE_SLICE); // 96-bits; unique per message
+    let mut block = field_to_block(elt);
 
-    let elt_string: String = std::format!("{elt}");
-    // In AES, encryption and decryption are done by the same operation
-    // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
-    // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
-    // TODO: why does it give an error when I run `.decrypt`?
-    // TODO: is is_ok() okay (lol) or should I propagate the error with Result<T, E>?
-    // TODO: test whether applying cipher.encrypt gives you the initial value (how is this possible?)
-    let permuted_bytes = cipher.encrypt(nonce, elt_string.as_bytes().as_ref());
-    assert!(permuted_bytes.is_ok());
-    let permuted: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&permuted_bytes.unwrap());
+    let cipher = Aes128::new(&AES_KEY.into());
+    cipher.encrypt_block(&mut block);
 
+    let permuted = block_to_field(block);
     permuted
 }
 
 fn pi_inverse(elt: Fq) -> Fq {
-    // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
-    let cipher = Aes128GcmSiv::new(&AES_KEY.into());
-    let nonce = Nonce::from_slice(NONCE_SLICE); // 96-bits; unique per message
+    let mut block = field_to_block(elt);
+    
+    let cipher: Aes128 = Aes128::new(&AES_KEY.into());
+    cipher.decrypt_block(&mut block);
 
-    let elt_string: String = std::format!("{elt}");
-    // In AES, encryption and decryption are done by the same operation
-    // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
-    // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
-    // TODO: why does it give an error when I run `.decrypt`?
-    // TODO: is is_ok() okay (lol) or should I propagate the error with Result<T, E>?
-    // TODO: test whether applying cipher.encrypt gives you the initial value (how is this possible?)
-    let permuted_bytes = cipher.decrypt(nonce, elt_string.as_bytes().as_ref());
-    assert!(permuted_bytes.is_ok());
-    let permuted: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&permuted_bytes.unwrap());
+    let permuted = block_to_field(block);
+
+    permuted
+
+}
+
+fn field_to_block(elt: Fq) -> GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize> {
+    let elt_bytes = elt.into_bigint().to_bytes_le();
+
+    let generic_array = GenericArray::from([
+        elt_bytes[0],
+        elt_bytes[1],
+        elt_bytes[2],
+        elt_bytes[3],
+        elt_bytes[4],
+        elt_bytes[5],
+        elt_bytes[6],
+        elt_bytes[7],
+        elt_bytes[8],
+        elt_bytes[9],
+        elt_bytes[10],
+        elt_bytes[11],
+        elt_bytes[12],
+        elt_bytes[13],
+        elt_bytes[14],
+        elt_bytes[15]
+    ]);
+
+    generic_array
+}
+
+fn block_to_field(block: GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize>) -> Fq {
+    let permuted: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(block.as_slice());
 
     permuted
 }
@@ -263,7 +277,7 @@ fn pi_inverse(elt: Fq) -> Fq {
 /// * `input` - An element of one of the private sets. In the future, the library may accept different element types, but currently only u64 is accepted.
 /// 
 /// # Outputs
-///
+/// 
 /// * `hash` - A field element
 fn hash_1(input: u64) -> Fq {
     // https://docs.rs/sha2/latest/sha2/
@@ -345,14 +359,43 @@ mod psi_unit_tests {
         pi, pi_inverse, interpolate, Fq
     };
 
+    use aes::{cipher::{generic_array::GenericArray, BlockEncrypt, BlockDecrypt}, Aes128};
+    use aes_gcm_siv::KeyInit;
     use ark_std::test_rng;
     use ark_ff::UniformRand;
     use ark_poly::Polynomial;
 
+
     #[test]
-    fn test_aes() {
+    fn test_field_bytes_conversion() {
+        let key = GenericArray::from([0u8; 16]);
+        let mut block = GenericArray::from([42u8; 16]);
+        
+        // Initialize cipher
+        let cipher = Aes128::new(&key);
+        
+        let block_copy = block.clone();
+        
+        // Encrypt block in-place
+        cipher.encrypt_block(&mut block);
+        
+        // And decrypt it back
+        cipher.decrypt_block(&mut block);
+        assert_eq!(block, block_copy);
+    }
+
+    #[test]
+    fn test_ideal_permutation() {
         let a: Fq = Fq::from(123);
-        assert_eq!(a, pi_inverse(pi(a)));
+        println!("a: {:?}", a);
+
+        let pi_a: Fq = pi(a);
+        println!("pi_a: {:?}", pi_a);
+
+        let inv_a: Fq = pi_inverse(pi_a);
+        println!("inv_a: {:?}", inv_a);
+
+        assert_eq!(a, inv_a);
     }
 
     #[test]

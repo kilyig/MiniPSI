@@ -11,6 +11,17 @@ fn test_two_small_sets() {
     // private set of the receiver
     let set_y: Vec<u64> = [3u64, 4u64, 5u64].to_vec();
 
+    // let plaintext_intersection = plaintext_intersection(&set_x, &set_y);
+    let protocol_intersection = protocol_intersection(&set_x, &set_y);
+
+    println!("{:?}", protocol_intersection);
+}
+
+// fn plaintext_intersection(set_x: &Vec<u64>, set_y: &Vec<u64>) {
+//     let intersection: Vec<u64> = set_x.into_iter().filter(|item| set_y.contains(item)).collect();
+// }
+
+fn protocol_intersection(set_x: &Vec<u64>, set_y: &Vec<u64>) -> Vec<u64> {
     let (a, m) = sender_1();
 
     /* the sender sends m to the receiver */
@@ -23,8 +34,7 @@ fn test_two_small_sets() {
 
     /* the sender sends K to the receiver */
 
-    let output = receiver_2(capital_k, m, b_i_array, &set_y);
+    let intersection = receiver_2(capital_k, m, b_i_array, &set_y);
 
-    // currently doesn't reveal 1
-    println!("{:?}", output);
+    intersection
 }
