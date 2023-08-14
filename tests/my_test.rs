@@ -16,23 +16,11 @@ fn test_two_small_sets() {
     run_protocol_and_check(&set_x, &set_y);
 }
 
-#[test]
-fn test_fuzzing() {
-    // private set of the sender
-    let set_x: Vec<u64> = [1u64, 4u64, 3u64].to_vec();
-
-    // private set of the receiver
-    let set_y: Vec<u64> = [3u64, 4u64, 5u64].to_vec();
-
-    run_protocol_and_check(&set_x, &set_y);
-}
-
 fn run_protocol_and_check(set_x: &Vec<u64>, set_y: &Vec<u64>) {
     let plaintext_intersection: HashSet<u64> = plaintext_intersection(&set_x, &set_y).into_iter().collect();
     let protocol_intersection: HashSet<u64> = protocol_intersection(&set_x, &set_y).into_iter().collect();
 
     assert!(plaintext_intersection == protocol_intersection);
-
 }
 
 fn plaintext_intersection(set_x: &Vec<u64>, set_y: &Vec<u64>) -> Vec<u64> {

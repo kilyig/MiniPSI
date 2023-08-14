@@ -1,4 +1,3 @@
-use aes::cipher::BlockSizeUser;
 /// This crate implements the malicious private set intersection (PSI) protocol described in
 /// the paper by Rosulek and Trieu titled "Compact and Malicious Private Set Intersection for Small Sets."
 /// An electronic copy of the paper can be found at https://eprint.iacr.org/2021/1159.pdf.
@@ -16,7 +15,7 @@ use aes::cipher::BlockSizeUser;
 
 use ark_ff::{
     fields::Field,
-    BigInteger256, PrimeField, BigInt
+    BigInteger256, PrimeField, BigInt, MontBackend, MontConfig, Fp128, BigInteger, FftField
 };
 
 use ark_poly::{
@@ -27,21 +26,13 @@ use ark_poly::{
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, rngs::ThreadRng};
 
-// TODO: put these into a mod for tests?
-// like https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs#L158
-use ark_ff::{MontBackend, MontConfig, Fp128};
-
-// https://docs.rs/sha2/latest/sha2/
 use sha2::{Sha256, Digest};
 
 use aes::Aes128;
 use aes::cipher::{
-    BlockEncrypt, BlockDecrypt, KeyInit,
+    BlockEncrypt, BlockDecrypt, KeyInit, BlockSizeUser,
     generic_array::GenericArray,
 };
-
-use ark_ff::FftField;
-use ark_ff::BigInteger;
 
 use std::convert::TryInto;
 
@@ -51,6 +42,7 @@ use std::convert::TryInto;
 pub struct FqConfig;
 pub type Fq = Fp128<MontBackend<FqConfig, 2>>;
 
+// agreed by both parties
 const AES_KEY: [u8; 16] = [185, 45, 74, 246, 159, 175, 5, 203, 150, 3, 209, 119, 141, 122, 116, 212];
 
 /// Called by the sender to start the protocol.
@@ -63,18 +55,13 @@ const AES_KEY: [u8; 16] = [185, 45, 74, 246, 159, 175, 5, 203, 150, 3, 209, 119,
 pub fn sender_1() -> (BigInteger256, Fq) {
     let mut rng: ThreadRng = thread_rng();
 
-    // generator for the group. agreed by both parties
-    // TODO: generator should be a global variable
-    // maybe Fq:GENERATOR?
-    let generator: Fq = Fq::from(3);
-
     // step #1
     // a <-- KA.R
     let a: BigInteger256 = rng.gen();
 
     // step #2
     // m = KA.msg_1(a)
-    let m: Fq = generator.pow(a);
+    let m: Fq = Fq::GENERATOR.pow(a);
 
     (a, m)
 }
@@ -92,10 +79,6 @@ pub fn sender_1() -> (BigInteger256, Fq) {
 /// * `poly` - Polynomial ($P$ in the paper)
 /// * `b_i_array` - Set of random values. To be later used in `receiver_2`
 pub fn receiver_1(set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
-    // generator for the group. agreed by both parties
-    // TODO: generator should be a global variable
-    let generator: Fq = Fq::from(3);
-
     // step #3
     let mut rng: ThreadRng = thread_rng();
     let mut b_i_array: Vec<BigInt<4>> = Vec::new();
@@ -107,7 +90,7 @@ pub fn receiver_1(set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
         b_i_array.push(b_i);
 
         // m^'_i = KA.msg_2(b_1, m)
-        let m_prime_i: Fq = generator.pow(b_i);
+        let m_prime_i: Fq = Fq::GENERATOR.pow(b_i);
 
         // f_i = \Pi^{-1}(m^'_i)
         // let's cheat for now and assume that the ideal permutation is the identity function
@@ -209,11 +192,11 @@ pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &
 
 /// Approximation for an ideal permutation.
 /// Uses AES
-/// $\Pi$ (and $\Pi^{-1}$) in the paper.
+/// $\Pi$ in the paper.
 /// 
 /// # Arguments
 ///
-/// * `input` - A field element
+/// * `elt` - A field element
 /// 
 /// # Outputs
 ///
@@ -228,6 +211,17 @@ fn pi(elt: Fq) -> Fq {
     permuted
 }
 
+/// Inverse of the function `pi`.
+/// Uses AES
+/// $\Pi^{-1}$ in the paper.
+/// 
+/// # Arguments
+///
+/// * `elt` - A field element
+/// 
+/// # Outputs
+///
+/// * `permuted` - A field element
 fn pi_inverse(elt: Fq) -> Fq {
     let mut block = field_to_block(elt);
     
@@ -239,11 +233,21 @@ fn pi_inverse(elt: Fq) -> Fq {
     permuted
 }
 
+/// Converts a field element into a block of 128 bits. This block later
+/// gets inputted to AES.
+///  
+/// # Arguments
+///
+/// * `elt` - A field element
+/// 
+/// # Outputs
+///
+/// * `block` - An array with 16 bytes
 fn field_to_block(elt: Fq) -> GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize> {
     let elt_bytes = elt.into_bigint().to_bytes_le();
 
     // TODO: this is ugly
-    let generic_array = GenericArray::from([
+    let block = GenericArray::from([
         elt_bytes[0],
         elt_bytes[1],
         elt_bytes[2],
@@ -262,13 +266,22 @@ fn field_to_block(elt: Fq) -> GenericArray<u8, <Aes128 as BlockSizeUser>::BlockS
         elt_bytes[15]
     ]);
 
-    generic_array
+    block
 }
 
+/// Converts a 128-bit block to a field element
+///  
+/// # Arguments
+///
+/// * `block` - An array with 16 bytes
+/// 
+/// # Outputs
+///
+/// * `elt` - A field element
 fn block_to_field(block: GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize>) -> Fq {
-    let permuted: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(block.as_slice());
+    let elt: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(block.as_slice());
 
-    permuted
+    elt
 }
 
 /// Hash function from arbitrary string to field element
@@ -360,12 +373,16 @@ mod psi_unit_tests {
         pi, pi_inverse, interpolate, Fq
     };
 
-    use aes::{cipher::{generic_array::GenericArray, BlockEncrypt, BlockDecrypt}, Aes128};
+    use aes::{
+        cipher::{
+            generic_array::GenericArray, BlockEncrypt, BlockDecrypt
+        },
+        Aes128
+    };
     use aes_gcm_siv::KeyInit;
     use ark_std::test_rng;
     use ark_ff::UniformRand;
     use ark_poly::Polynomial;
-
 
     #[test]
     fn test_field_bytes_conversion() {
@@ -387,16 +404,12 @@ mod psi_unit_tests {
 
     #[test]
     fn test_ideal_permutation() {
-        let a: Fq = Fq::from(123);
-        println!("a: {:?}", a);
-
-        let pi_a: Fq = pi(a);
-        println!("pi_a: {:?}", pi_a);
-
-        let inv_a: Fq = pi_inverse(pi_a);
-        println!("inv_a: {:?}", inv_a);
-
-        assert_eq!(a, inv_a);
+        let mut rng = test_rng();
+        for _ in 0..100 {
+            let rand_elt: Fq = Fq::rand(&mut rng);
+            assert_eq!(rand_elt, pi_inverse(pi(rand_elt)));
+            assert_eq!(rand_elt, pi(pi_inverse(rand_elt)));
+        }
     }
 
     #[test]
@@ -414,4 +427,3 @@ mod psi_unit_tests {
         }
     }
 }
-
