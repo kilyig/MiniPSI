@@ -279,9 +279,7 @@ fn field_to_block(elt: Fq) -> GenericArray<u8, <Aes128 as BlockSizeUser>::BlockS
 ///
 /// * `elt` - A field element
 fn block_to_field(block: GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize>) -> Fq {
-    let elt: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(block.as_slice());
-
-    elt
+    <Fq as PrimeField>::from_le_bytes_mod_order(block.as_slice())
 }
 
 /// Hash function from arbitrary string to field element
@@ -301,9 +299,7 @@ fn hash_1(input: u64) -> Fq {
     let result = hasher.finalize();
 
     // map the output of the hash back to a field element
-    let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&result);
-
-    hash
+    <Fq as PrimeField>::from_le_bytes_mod_order(&result)
 }
 
 /// Hash function from arbitrary string x field element to field element

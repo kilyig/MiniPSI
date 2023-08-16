@@ -17,7 +17,7 @@ fn run_protocol_and_check(set_x: &Vec<u64>, set_y: &Vec<u64>) {
     let plaintext_intersection: HashSet<u64> = plaintext_intersection(&set_x, &set_y).into_iter().collect();
     let protocol_intersection: HashSet<u64> = protocol_intersection(&set_x, &set_y).into_iter().collect();
 
-    assert!(plaintext_intersection == protocol_intersection);
+    assert_eq!(plaintext_intersection, protocol_intersection);
 }
 
 fn plaintext_intersection(set_x: &Vec<u64>, set_y: &Vec<u64>) -> Vec<u64> {
