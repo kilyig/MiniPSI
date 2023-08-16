@@ -280,15 +280,14 @@ fn hash_2(input1: u64, input2: Fq) -> Fq {
 /// stolen from https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs
 fn construct_lagrange_basis<F: FftField>(evaluation_domain: &[F]) -> Vec<DensePolynomial<F>> {
     let mut bases = Vec::with_capacity(evaluation_domain.len());
-    for i in 0..evaluation_domain.len() {
+    for (i, x_i) in evaluation_domain.iter().enumerate() {
         let mut l_i = DensePolynomial::from_coefficients_slice(&[F::one()]);
-        let x_i = evaluation_domain[i];
-        for (j, _) in evaluation_domain.iter().enumerate() {
+        for (j, j_i) in evaluation_domain.iter().enumerate() {
             if j != i {
-                let xi_minus_xj_inv = (x_i - evaluation_domain[j]).inverse().unwrap();
+                let xi_minus_xj_inv = (*x_i - *j_i).inverse().unwrap();
                 l_i = l_i.naive_mul(
                     &DensePolynomial::from_coefficients_slice(&[
-                        -evaluation_domain[j] * xi_minus_xj_inv,
+                        -*j_i * xi_minus_xj_inv,
                         xi_minus_xj_inv,
                     ]));
             }
