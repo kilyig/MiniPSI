@@ -369,7 +369,7 @@ fn interpolate(roots: &Vec<Fq>, f_evals: &Vec<Fq>) -> DensePolynomial<Fq> {
 
 #[cfg(test)]
 mod psi_unit_tests {
-    use crate::psi::{
+    use crate::mal_psi::{
         pi, pi_inverse, interpolate, Fq
     };
 

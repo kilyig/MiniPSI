@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use mini_psi::mal_psi::{sender_1, receiver_1, sender_2, receiver_2};
 
 #[test]
