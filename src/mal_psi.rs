@@ -14,8 +14,8 @@
 /// to the receiver.
 
 use ark_ff::{
-    fields::{Field, Fp64, MontBackend, MontConfig},
-    BigInteger256, PrimeField, BigInt
+    fields::Field,
+    BigInteger256, PrimeField, BigInt, MontBackend, MontConfig, Fp128, BigInteger, FftField
 };
 
 use ark_poly::{
@@ -26,35 +26,29 @@ use ark_poly::{
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng, rngs::ThreadRng};
 
-// https://docs.rs/sha2/latest/sha2/
 use sha2::{Sha256, Digest};
 
-use aes_gcm_siv::{
-    aead::{Aead, KeyInit, OsRng},
-    Aes128GcmSiv, Nonce // Or `Aes128GcmSiv`
+use aes::Aes128;
+use aes::cipher::{
+    BlockEncrypt, BlockDecrypt, KeyInit, BlockSizeUser,
+    generic_array::GenericArray,
 };
 
-// Defining your own field
-// To demonstrate the various field operations, we can first define a prime ordered field $\mathbb{F}_{p}$ with $p = 17$. When defining a field $\mathbb{F}_p$, we need to provide the modulus(the $p$ in $\mathbb{F}_p$) and a generator. Recall that a generator $g \in \mathbb{F}_p$ is a field element whose powers comprise the entire field: $\mathbb{F}_p =\\{g, g^1, \ldots, g^{p-1}\\}$.
-// We can then manually construct the field element associated with an integer with `Fp::from` and perform field addition, subtraction, multiplication, and inversion on it.
+use std::convert::TryInto;
+
 #[derive(MontConfig)]
-#[modulus = "2305843009213693951"] // a Mersenne prime
+#[modulus = "340282366920938463463374607431768211297"] // 2^128 - 159 (largest prime that can be represented with 128 bits)
 #[generator = "3"]
 pub struct FqConfig;
-pub type Fq = Fp64<MontBackend<FqConfig, 1>>;
+pub type Fq = Fp128<MontBackend<FqConfig, 2>>;
+
+// agreed by both parties
+const AES_KEY: [u8; 16] = [185, 45, 74, 246, 159, 175, 5, 203, 150, 3, 209, 119, 141, 122, 116, 212];
 
 /// Called by the sender to start the protocol.
 /// Steps #1 and #2 in the paper.
-/// 
-/// # Outputs
-///
-/// * `a` - Random integer. Will be later used in `sender_2`
-/// * `m` - KA message to be inputted to `receiver_1`
 pub fn sender_1() -> (BigInteger256, Fq) {
     let mut rng: ThreadRng = thread_rng();
-    // generator for the group. agreed by both parties
-    // TODO: generator should be a global variable
-    let generator: Fq = Fq::from(3);
 
     // step #1
     // a <-- KA.R
@@ -62,7 +56,7 @@ pub fn sender_1() -> (BigInteger256, Fq) {
 
     // step #2
     // m = KA.msg_1(a)
-    let m: Fq = generator.pow(a);
+    let m: Fq = Fq::GENERATOR.pow(a);
 
     (a, m)
 }
@@ -74,12 +68,7 @@ pub fn sender_1() -> (BigInteger256, Fq) {
 ///
 /// * `m` - Field element received from the sender
 /// * `set_y` - The receiver's private set
-/// 
-///  # Outputs
-///
-/// * `poly` - Polynomial (P in the paper)
-/// * `b_i_array` - Set of random values. To be later used in `receiver_2`
-pub fn receiver_1(m: Fq, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
+pub fn receiver_1(set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt<4>>) {
     // step #3
     let mut rng: ThreadRng = thread_rng();
     let mut b_i_array: Vec<BigInt<4>> = Vec::new();
@@ -91,10 +80,11 @@ pub fn receiver_1(m: Fq, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt
         b_i_array.push(b_i);
 
         // m^'_i = KA.msg_2(b_1, m)
-        let m_prime_i: Fq = m.pow(b_i);
+        let m_prime_i: Fq = Fq::GENERATOR.pow(b_i);
 
         // f_i = \Pi^{-1}(m^'_i)
-        let f_i: Fq = pi(m_prime_i);
+        // let's cheat for now and assume that the ideal permutation is the identity function
+        let f_i: Fq = pi_inverse(m_prime_i);
 
         f_i_array.push(f_i);
     }
@@ -107,14 +97,7 @@ pub fn receiver_1(m: Fq, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt
         y_hashes.push(hash);
     }
 
-    // the following polynomial is random (so, a different poly than the one that needs to be sent by the receiver)
-    // TODO: make sure that P is actually produced through interpolation
-    let poly: DensePolynomial::<Fq> = DensePolynomial::<Fq>::rand(20 - 1, &mut rng);
-    
-    // let poly_fast_eval: DensePolynomial::<Fq> = DensePolynomial::<Fq>::rand(20 - 1, &mut rng);
-
-    // let processor = FftProcessor<Fq>
-    // let abcd = FftProcessor::interpolate(FftProcessor, &f_i_array);
+    let poly = interpolate(&y_hashes, &f_i_array);
 
     (poly, b_i_array)
 }
@@ -126,12 +109,8 @@ pub fn receiver_1(m: Fq, set_y: &Vec<u64>) -> (DensePolynomial::<Fq>, Vec<BigInt
 ///
 /// * `a` - The randomness returned by `sender_1`
 /// * `poly` - Polynomial outputted by `receiver_1`
-/// * `set_x` - The sender's private set
-/// 
-/// # Outputs
-///
-/// * `capital_k` - Set of field elements (K in the paper)
-pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) -> Vec<Fq> {
+/// * `set_x` - The sender's private set 
+pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: &Vec<u64>) -> Vec<Fq> {    
     // TODO: abort if deg(P) < 1
     // step #5
     let mut capital_k: Vec<Fq> = Vec::new();
@@ -146,6 +125,7 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
         let poly_eval: Fq = poly.evaluate(&hash);
 
         // then, pass the output to the ideal permutation
+        // let's cheat for now and assume that the ideal permutation is the identity function
         let permuted: Fq = pi(poly_eval);
         
         // then, calculate the KA key
@@ -159,7 +139,6 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
 
     // step #6
     // shuffle K
-    // https://rust-random.github.io/rand/rand/seq/trait.SliceRandom.html#example-4
     let mut rng: ThreadRng = thread_rng();
     capital_k.shuffle(&mut rng);
 
@@ -175,10 +154,6 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: Vec<u64>) 
 /// * `m` - Field element received from the sender's first message (output of `sender_1`)
 /// * `b_i_array` - Set of random field elements generated by `receiver_1`
 /// * `set_y` - The receiver's private set
-/// 
-/// # Outputs
-///
-/// * `intersection` - The subset of the receiver's private set that only includes every element in the intersection
 pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &Vec<u64>) -> Vec<u64> {
     // step #7
     let mut intersection: Vec<u64> = Vec::new();
@@ -197,81 +172,203 @@ pub fn receiver_2(capital_k: Vec<Fq>, m: Fq, b_i_array: Vec<BigInt<4>>, set_y: &
 }
 
 /// Approximation for an ideal permutation.
-/// Uses AES GCM SIV (https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#AES-GCM-SIV)
-/// \Pi (and \Pi^{-1}) in the paper.
+/// Uses AES
+/// $\Pi$ in the paper.
 /// 
 /// # Arguments
 ///
-/// * `input` - A field element
+/// * `elt` - A field element
+fn pi(elt: Fq) -> Fq {
+    let mut block = field_to_block(elt);
+
+    let cipher = Aes128::new(&AES_KEY.into());
+    cipher.encrypt_block(&mut block);
+
+    block_to_field(block)
+}
+
+/// Inverse of the function `pi`.
+/// Uses AES
+/// $\Pi^{-1}$ in the paper.
 /// 
-/// # Outputs
+/// # Arguments
 ///
-/// * `permuted` - A field element
-fn pi(input: Fq) -> Fq {
-    // for the ideal permutation. because we need a simple fixed permutation, we don't need to change the key or nonce?
-    // TODO: these should be global variables
-    let key = Aes128GcmSiv::generate_key(&mut OsRng);
-    let cipher = Aes128GcmSiv::new(&key);
-    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+/// * `elt` - A field element
+fn pi_inverse(elt: Fq) -> Fq {
+    let mut block = field_to_block(elt);
+    
+    let cipher: Aes128 = Aes128::new(&AES_KEY.into());
+    cipher.decrypt_block(&mut block);
 
-    let input_string: String = std::format!("{input}");
-    // In AES, encryption and decryption are done by the same operation
-    // from: https://docs.rs/aes-gcm-siv/latest/aes_gcm_siv/#usage
-    // also: https://stackoverflow.com/questions/23850486/how-do-i-convert-a-string-into-a-vector-of-bytes-in-rust
-    // TODO: why does it give an error when I run `.decrypt`?
-    // TODO: is is_ok() okay (lol) or should I propagate the error with Result<T, E>?
-    // TODO: test whether applying cipher.encrypt gives you the initial value (how is this possible?)
-    let permuted_bytes = cipher.encrypt(nonce, input_string.as_bytes().as_ref());
-    assert!(permuted_bytes.is_ok());
-    let permuted: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&permuted_bytes.unwrap());
+    block_to_field(block)
+}
 
-    permuted
+/// Converts a field element into a block of 128 bits. This block later
+/// gets inputted to AES.
+///  
+/// # Arguments
+///
+/// * `elt` - A field element
+fn field_to_block(elt: Fq) -> GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize> {
+    let elt_bytes = elt.into_bigint().to_bytes_le();
+
+    // TODO: this is ugly
+    GenericArray::from([
+        elt_bytes[0],
+        elt_bytes[1],
+        elt_bytes[2],
+        elt_bytes[3],
+        elt_bytes[4],
+        elt_bytes[5],
+        elt_bytes[6],
+        elt_bytes[7],
+        elt_bytes[8],
+        elt_bytes[9],
+        elt_bytes[10],
+        elt_bytes[11],
+        elt_bytes[12],
+        elt_bytes[13],
+        elt_bytes[14],
+        elt_bytes[15]
+    ])
+}
+
+/// Converts a 128-bit block to a field element
+///  
+/// # Arguments
+///
+/// * `block` - An array with 16 bytes
+fn block_to_field(block: GenericArray<u8, <Aes128 as BlockSizeUser>::BlockSize>) -> Fq {
+    <Fq as PrimeField>::from_le_bytes_mod_order(block.as_slice())
 }
 
 /// Hash function from arbitrary string to field element
-/// H_1 in the paper.
+/// $H_1$ in the paper.
 ///
 /// # Arguments
 ///
 /// * `input` - An element of one of the private sets. In the future, the library may accept different element types, but currently only u64 is accepted.
-/// 
-/// # Outputs
-///
-/// * `hash` - A field element
 fn hash_1(input: u64) -> Fq {
     // https://docs.rs/sha2/latest/sha2/
     let mut hasher = Sha256::new();
     hasher.update(input.to_le_bytes());
     let result = hasher.finalize();
 
-    // need to shorten it to u64 for now.
-    // represent those 8 bytes as a single u64
-    let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&result);
-
-    hash
+    // map the output of the hash back to a field element
+    <Fq as PrimeField>::from_le_bytes_mod_order(&result)
 }
 
 /// Hash function from arbitrary string x field element to field element
-/// H_2 in the paper.
+/// $H_2$ in the paper.
 ///
 /// # Arguments
 ///
 /// * `input1` - An element of one of the private sets. In the future, the library may accept different element types, but currently only u64 is accepted.
 /// * `input2` - A field element
-/// 
-/// # Outputs
-///
-/// * `hash` - A field element
 fn hash_2(input1: u64, input2: Fq) -> Fq {
     // finally, hash x_i with the output from the previous step
     let mut hasher = Sha256::new();
-    // TODO: when you stack up the `update`s, it doesn't overwrite everything except the last one, right?
     hasher.update(input1.to_le_bytes());
     let k_i_string: String = std::format!("{input2}");
     hasher.update(k_i_string.as_bytes());
     let k_prime_i_bytes = hasher.finalize();
 
-    let hash: Fq = <Fq as PrimeField>::from_le_bytes_mod_order(&k_prime_i_bytes);
+    <Fq as PrimeField>::from_le_bytes_mod_order(&k_prime_i_bytes)
+}
 
-    hash
+/// given x coords construct Li polynomials
+/// stolen from https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs
+fn construct_lagrange_basis<F: FftField>(evaluation_domain: &[F]) -> Vec<DensePolynomial<F>> {
+    let mut bases = Vec::with_capacity(evaluation_domain.len());
+    for (i, x_i) in evaluation_domain.iter().enumerate() {
+        let mut l_i = DensePolynomial::from_coefficients_slice(&[F::one()]);
+        for (j, j_i) in evaluation_domain.iter().enumerate() {
+            if j != i {
+                let xi_minus_xj_inv = (*x_i - *j_i).inverse().unwrap();
+                l_i = l_i.naive_mul(
+                    &DensePolynomial::from_coefficients_slice(&[
+                        -*j_i * xi_minus_xj_inv,
+                        xi_minus_xj_inv,
+                    ]));
+            }
+        }
+
+        bases.push(l_i);
+    }
+
+    bases
+}
+
+/// stolen from https://github.com/geometryresearch/fast-eval/blob/7fac903cce7ff5961c4fc8e5070c0544138adf15/src/subtree.rs
+fn interpolate(roots: &Vec<Fq>, f_evals: &Vec<Fq>) -> DensePolynomial<Fq> {
+
+    let lagrange_basis = construct_lagrange_basis(&roots);
+
+    let mut f_slow = DensePolynomial::default();
+    for (li, &fi) in lagrange_basis.iter().zip(f_evals.iter()) {
+        f_slow += (fi, li);
+    }
+
+    f_slow
+}
+
+#[cfg(test)]
+mod psi_unit_tests {
+    use crate::mal_psi::{
+        pi, pi_inverse, interpolate, Fq
+    };
+
+    use aes::{
+        cipher::{
+            generic_array::GenericArray, BlockEncrypt, BlockDecrypt
+        },
+        Aes128
+    };
+    use aes_gcm_siv::KeyInit;
+    use ark_std::test_rng;
+    use ark_ff::UniformRand;
+    use ark_poly::Polynomial;
+
+    #[test]
+    fn test_field_bytes_conversion() {
+        let key = GenericArray::from([0u8; 16]);
+        let mut block = GenericArray::from([42u8; 16]);
+        
+        // Initialize cipher
+        let cipher = Aes128::new(&key);
+        
+        let block_copy = block.clone();
+        
+        // Encrypt block in-place
+        cipher.encrypt_block(&mut block);
+        
+        // And decrypt it back
+        cipher.decrypt_block(&mut block);
+        assert_eq!(block, block_copy);
+    }
+
+    #[test]
+    fn test_ideal_permutation() {
+        let mut rng = test_rng();
+        for _ in 0..100 {
+            let rand_elt: Fq = Fq::rand(&mut rng);
+            assert_eq!(rand_elt, pi_inverse(pi(rand_elt)));
+            assert_eq!(rand_elt, pi(pi_inverse(rand_elt)));
+        }
+    }
+
+    #[test]
+    fn test_interpolate() {
+        let n: usize = 32;
+        let mut rng = test_rng();
+
+        let roots: Vec<Fq> = (0..n).map(|_| Fq::rand(&mut rng)).collect();    
+        let f_evals: Vec<Fq> = (0..n).map(|_| Fq::rand(&mut rng)).collect();
+
+        let poly = interpolate(&roots, &f_evals);
+
+        for i in 0..roots.len() {
+            assert_eq!(f_evals[i], poly.evaluate(&roots[i]));
+        }
+    }
 }
