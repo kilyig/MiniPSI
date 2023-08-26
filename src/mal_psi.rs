@@ -125,7 +125,6 @@ pub fn sender_2(a: BigInteger256, poly: DensePolynomial::<Fq>, set_x: &Vec<u64>)
         let poly_eval: Fq = poly.evaluate(&hash);
 
         // then, pass the output to the ideal permutation
-        // let's cheat for now and assume that the ideal permutation is the identity function
         let permuted: Fq = pi(poly_eval);
         
         // then, calculate the KA key
